@@ -18,36 +18,25 @@ jobs:
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
-      - name: Verify and Setup Directories
+      - name: Clone AnyKernel3
         run: |
-          # Function to create directory and files if they don't exist
-          setup_dir() {
-            local dir=$1
-            if [ ! -d "$dir" ]; then
-              echo "Creating directory: $dir"
-              mkdir -p "$dir"
-            else
-              echo "Directory already exists: $dir"
-            fi
-          }
-          
-          # List of directories to check/create
-          DIRS=(
-            "kernel/sched_assist"
-            "kernel/locking/klockopt"
-            "arch/arm64/kernel/rootguard"
-            "drivers/oplus/system"
-          )
-          
-          # Verify/create each directory
-          for dir in "${DIRS[@]}"; do
-            setup_dir "$dir"
-          done
-          
-          # Create or update OplusKernelEnvConfig.mk
-          if [ ! -f "OplusKernelEnvConfig.mk" ]; then
-            echo "Creating OplusKernelEnvConfig.mk"
-            cat << 'EOL' > OplusKernelEnvConfig.mk
+          git clone https://github.com/osm0sis/AnyKernel3
+          # Setup AnyKernel3 for Realme X7 Max
+          cd AnyKernel3
+          # Update anykernel.sh with device-specific values
+          sed -i 's/do.devicecheck=1/do.devicecheck=1/g' anykernel.sh
+          sed -i 's/device.name1=/device.name1=RMX3031/g' anykernel.sh
+          sed -i 's/device.name2=/device.name2=RMX3033/g' anykernel.sh
+          sed -i 's/device.name3=/device.name3=GTNeo/g' anykernel.sh
+          sed -i 's/device.name4=/device.name4=GTNeo2T/g' anykernel.sh
+          sed -i 's/device.name5=/device.name5=X7Max/g' anykernel.sh
+          cd ..
+
+      - name: Setup OPLUS Config
+        run: |
+          # Create OplusKernelEnvConfig.mk
+          echo "Creating OplusKernelEnvConfig.mk..."
+          cat << 'EOL' > OplusKernelEnvConfig.mk
           # OPLUS Features Configuration
           OPLUS_FEATURE_HEALTHINFO=yes
           OPLUS_FEATURE_SCHED_ASSIST=yes
@@ -79,48 +68,6 @@ jobs:
           
           export KBUILD_CFLAGS
           EOL
-          else
-            echo "OplusKernelEnvConfig.mk already exists"
-          fi
-          
-          # Create or verify Kconfig files
-          if [ ! -f "kernel/sched_assist/Kconfig" ]; then
-            echo "Creating sched_assist Kconfig"
-            cat << 'EOL' > kernel/sched_assist/Kconfig
-          config OPLUS_FEATURE_SCHED_ASSIST
-            tristate "sched_assist"
-            default y
-            help
-              Config for sched assist
-          
-          config OPLUS_FEATURE_SCHED_SPREAD
-            bool "sched spread"
-            default y
-            help
-              Config for sched spread
-          
-          if OPLUS_FEATURE_SCHED_ASSIST
-          config OPLUS_FEATURE_HEALTHINFO
-            bool "healthinfo"
-            default y
-            help
-              Config for healthinfo
-          endif
-          EOL
-          else
-            echo "sched_assist Kconfig already exists"
-          fi
-          
-          # Verify and list all critical files
-          echo "=== Directory Structure ==="
-          ls -R kernel/sched_assist/ || echo "sched_assist not found"
-          ls -R kernel/locking/klockopt/ || echo "klockopt not found"
-          ls -R arch/arm64/kernel/rootguard/ || echo "rootguard not found"
-          ls -R drivers/oplus/system/ || echo "oplus system not found"
-          
-          echo "=== Critical Files ==="
-          [ -f "OplusKernelEnvConfig.mk" ] && echo "✓ OplusKernelEnvConfig.mk exists" || echo "✗ OplusKernelEnvConfig.mk missing"
-          [ -f "kernel/sched_assist/Kconfig" ] && echo "✓ sched_assist Kconfig exists" || echo "✗ sched_assist Kconfig missing"
 
       - name: Build Kernel
         run: |
@@ -128,14 +75,9 @@ jobs:
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          # Include OplusKernelEnvConfig.mk
-          if [ -f "OplusKernelEnvConfig.mk" ]; then
-            cp OplusKernelEnvConfig.mk Makefile.oplus
-            echo "include Makefile.oplus" >> Makefile
-          else
-            echo "ERROR: OplusKernelEnvConfig.mk not found!"
-            exit 1
-          fi
+          # Copy OplusKernelEnvConfig.mk to Makefile.oplus
+          cp OplusKernelEnvConfig.mk Makefile.oplus
+          echo "include Makefile.oplus" >> Makefile
           
           # Clean build
           make mrproper
@@ -144,17 +86,35 @@ jobs:
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
           
           # Enable OPLUS features in config
-          if [ -f "OplusKernelEnvConfig.mk" ]; then
-            for feature in $(grep OPLUS_FEATURE_ OplusKernelEnvConfig.mk | grep -v "#" | cut -d'=' -f1); do
+          while IFS= read -r line; do
+            if [[ $line =~ ^OPLUS_FEATURE_ && ! $line =~ ^# ]]; then
+              feature=$(echo "$line" | cut -d'=' -f1)
               echo "CONFIG_${feature}=y" >> out/.config
-            done
-          fi
+            fi
+          done < OplusKernelEnvConfig.mk
           
           # Update config
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
           
           # Build kernel
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
+
+      - name: Package Kernel
+        run: |
+          if [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
+            # Copy kernel to AnyKernel3 directory
+            cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+            
+            # Create flashable ZIP
+            cd AnyKernel3
+            zip -r9 ../X7Max-Kernel-$(date +%Y%m%d).zip * -x .git README.md *placeholder
+            cd ..
+            
+            echo "Kernel packaged successfully!"
+          else
+            echo "Error: Kernel image not found!"
+            exit 1
+          fi
 
       - name: Upload Build Artifacts
         if: always()
@@ -166,16 +126,5 @@ jobs:
             build.log
             OplusKernelEnvConfig.mk
             out/.config
-          if-no-files-found: warn
-
-      - name: Upload Directory Structure
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: directory-structure
-          path: |
-            kernel/sched_assist/
-            kernel/locking/klockopt/
-            arch/arm64/kernel/rootguard/
-            drivers/oplus/system/
+            *.zip
           if-no-files-found: warn
