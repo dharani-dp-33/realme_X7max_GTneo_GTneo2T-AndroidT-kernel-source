@@ -18,25 +18,19 @@ jobs:
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
-      - name: Setup Build Structure
+      - name: Check and Setup Files
         run: |
-          # Create all required directories first
-          mkdir -p arch/arm64/kernel/rootguard
-          mkdir -p drivers/oplus/system/
-          mkdir -p kernel/locking/klockopt
-          mkdir -p kernel/sched_assist
+          # First, let's see what we actually have
+          echo "=== Checking Directory Structure ==="
+          ls -la arch/arm64/kernel/ || echo "kernel directory not found"
           
-          # Create basic Makefile for rootguard
-          echo 'obj-y := rootguard.o' > arch/arm64/kernel/rootguard/Makefile
-          
-          # Create empty .c files to satisfy dependencies
-          echo '#include <linux/module.h>
-          MODULE_LICENSE("GPL");' > arch/arm64/kernel/rootguard/rootguard.c
-          
-          # Create basic Makefiles for other directories
-          echo 'obj-y := ' > drivers/oplus/system/Makefile
-          echo 'obj-y := ' > kernel/locking/klockopt/Makefile
-          echo 'obj-y := ' > kernel/sched_assist/Makefile
+          # Now carefully handle rootguard
+          if [ ! -f "arch/arm64/kernel/rootguard/Makefile" ]; then
+            mkdir -p arch/arm64/kernel/rootguard
+            echo 'obj-y := rootguard.o' > arch/arm64/kernel/rootguard/Makefile
+            echo '#include <linux/module.h>
+            MODULE_LICENSE("GPL");' > arch/arm64/kernel/rootguard/rootguard.c
+          fi
 
       - name: Create OPLUS Config
         run: |
@@ -64,35 +58,38 @@ jobs:
           OPLUS_FEATURE_WIFI_MTUDETECT=yes
           OPLUS_FEATURE_WIFI_SLA=yes
           OPLUS_FEATURE_CHG_BASIC=yes
-          EOL
 
-          # Copy to Makefile.oplus
-          cp OplusKernelEnvConfig.mk Makefile.oplus
-          echo "include Makefile.oplus" >> Makefile
+          # Export features
+          $(foreach myfeature,$(shell grep OPLUS_FEATURE_ $(CURDIR)/OplusKernelEnvConfig.mk | grep -v "#" | cut -d'=' -f1), \
+          $(eval $(myfeature)_MACRO := -D$(myfeature)) \
+          $(eval KBUILD_CFLAGS += $($(myfeature)_MACRO)))
+          
+          export KBUILD_CFLAGS
+          EOL
 
       - name: Build Kernel
         run: |
-          # Set environment
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          # Clean previous build artifacts if any
+          # Remove out directory if it exists and create new
           rm -rf out/
           mkdir -p out/
           
-          # Configure and build
+          echo "=== Starting Kernel Build ==="
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
+          
+          echo "=== Building Kernel ==="
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
 
       - name: Package Kernel
         if: success()
         run: |
-          # Clone AnyKernel3
           git clone https://github.com/osm0sis/AnyKernel3
-          
-          # Configure AnyKernel3
           cd AnyKernel3
+          
+          # Update device names
           sed -i 's/do.devicecheck=1/do.devicecheck=1/g' anykernel.sh
           sed -i 's/device.name1=/device.name1=RMX3031/g' anykernel.sh
           sed -i 's/device.name2=/device.name2=RMX3033/g' anykernel.sh
@@ -100,7 +97,6 @@ jobs:
           sed -i 's/device.name4=/device.name4=GTNeo2T/g' anykernel.sh
           sed -i 's/device.name5=/device.name5=X7Max/g' anykernel.sh
           
-          # Copy kernel
           if [ -f "../out/arch/arm64/boot/Image.gz-dtb" ]; then
             cp ../out/arch/arm64/boot/Image.gz-dtb .
             zip -r9 ../X7Max-Kernel.zip * -x .git README.md *placeholder
