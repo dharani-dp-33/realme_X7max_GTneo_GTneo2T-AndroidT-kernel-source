@@ -17,55 +17,93 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
           libssl-dev make bc bison flex libelf-dev zip
 
-      - name: Analyze Repository Structure
+      - name: Build Kernel
         run: |
-          echo "Repository Structure Analysis:"
-          echo "=============================="
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
           
-          echo "1. Root directory contents:"
-          ls -la
+          # Build with detailed output
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
           
-          echo -e "\n2. Kernel directory contents:"
-          ls -la kernel/ || echo "No kernel directory"
-          
-          echo -e "\n3. Looking for symlinks:"
-          find . -type l -exec ls -l {} \;
-          
-          echo -e "\n4. Looking for Kconfig files:"
-          find . -name "Kconfig"
-          
-          echo -e "\n5. Directory tree of important paths:"
-          tree kernel/ 2>/dev/null || echo "No kernel directory"
-          tree drivers/android/ 2>/dev/null || echo "No android drivers"
-          
-          echo -e "\n6. Available defconfigs:"
-          ls -la arch/arm64/configs/
+          BUILD_STATUS=${PIPESTATUS[0]}
+          if [ $BUILD_STATUS -eq 0 ]; then
+            echo "Build completed successfully!"
+          else
+            echo "Build failed with status $BUILD_STATUS"
+            exit $BUILD_STATUS
+          fi
 
-      - name: Create Required Directories
+      - name: Collect Artifacts
+        if: success()
         run: |
-          # First check if directories exist
-          echo "Current structure before creating directories:"
-          pwd
-          ls -la
+          # Create artifacts directory
+          mkdir -p artifacts
           
-          echo -e "\nAttempting to create directories:"
-          # Try creating in vendor first
-          mkdir -p vendor/oplus/kernel/oplus_performance/sched_assist || echo "Could not create in vendor"
-          mkdir -p vendor/oplus/kernel/oplus_performance/locking/klockopt || echo "Could not create in klockopt"
+          # Copy kernel image
+          echo "Copying kernel image..."
+          cp out/arch/arm64/boot/Image.gz artifacts/ || echo "No Image.gz found"
+          cp out/arch/arm64/boot/Image artifacts/ || echo "No Image found"
           
-          # Try creating in drivers as alternative
-          mkdir -p drivers/oplus/kernel/oplus_performance/sched_assist || echo "Could not create in drivers"
-          mkdir -p drivers/oplus/kernel/oplus_performance/locking/klockopt || echo "Could not create in drivers/klockopt"
+          # Copy DTB files
+          echo "Copying DTB files..."
+          cp out/arch/arm64/boot/dts/mediatek/*.dtb artifacts/ || echo "No DTB files found"
           
-          echo -e "\nFinal directory structure:"
-          find . -name "sched_assist" -o -name "klockopt"
+          # Copy build config
+          echo "Copying build config..."
+          cp out/.config artifacts/kernel_config || echo "No .config found"
+          
+          # Copy build log
+          echo "Copying build log..."
+          cp build.log artifacts/ || echo "No build.log found"
+          
+          # Create a simple info file
+          echo "Creating build info..."
+          {
+            echo "Build Date: $(date)"
+            echo "Commit: $(git rev-parse HEAD)"
+            echo "Branch: $(git rev-parse --abbrev-ref HEAD)"
+          } > artifacts/build_info.txt
+          
+          # List collected artifacts
+          echo -e "\nCollected artifacts:"
+          ls -lh artifacts/
 
-      - name: Upload Analysis Results
+      - name: Create Kernel Package
+        if: success()
+        run: |
+          cd artifacts
+          zip -r ../kernel_package.zip *
+          cd ..
+          echo -e "\nKernel package contents:"
+          unzip -l kernel_package.zip
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-build-artifacts
+          path: |
+            artifacts/
+            kernel_package.zip
+          if-no-files-found: error
+
+      - name: Upload Build Log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: repository-analysis
-          path: |
-            repository-structure.txt
-            find-results.txt
+          name: build-logs
+          path: build.log
           if-no-files-found: warn
+
+      - name: Check Artifacts
+        run: |
+          echo "Checking artifact locations..."
+          echo "1. Checking out/ directory:"
+          ls -R out/arch/arm64/boot/
+          
+          echo -e "\n2. Checking artifacts/ directory:"
+          ls -R artifacts/
+          
+          echo -e "\n3. Checking kernel_package.zip:"
+          ls -lh kernel_package.zip || echo "No kernel_package.zip found"
