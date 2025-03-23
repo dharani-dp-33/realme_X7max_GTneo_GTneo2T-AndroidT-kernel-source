@@ -1,0 +1,121 @@
+name: Build Kernel
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Setup Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
+          libssl-dev make bc bison flex libelf-dev zip \
+          libncurses-dev gzip python-is-python3
+
+      - name: Setup Build Structure
+        run: |
+          # Create all required directories first
+          mkdir -p arch/arm64/kernel/rootguard
+          mkdir -p drivers/oplus/system/
+          mkdir -p kernel/locking/klockopt
+          mkdir -p kernel/sched_assist
+          
+          # Create basic Makefile for rootguard
+          echo 'obj-y := rootguard.o' > arch/arm64/kernel/rootguard/Makefile
+          
+          # Create empty .c files to satisfy dependencies
+          echo '#include <linux/module.h>
+          MODULE_LICENSE("GPL");' > arch/arm64/kernel/rootguard/rootguard.c
+          
+          # Create basic Makefiles for other directories
+          echo 'obj-y := ' > drivers/oplus/system/Makefile
+          echo 'obj-y := ' > kernel/locking/klockopt/Makefile
+          echo 'obj-y := ' > kernel/sched_assist/Makefile
+
+      - name: Create OPLUS Config
+        run: |
+          cat << 'EOL' > OplusKernelEnvConfig.mk
+          # OPLUS Features Configuration
+          OPLUS_FEATURE_HEALTHINFO=yes
+          OPLUS_FEATURE_SCHED_ASSIST=yes
+          OPLUS_FEATURE_TASK_CPUSTATS=yes
+          OPLUS_FEATURE_HANS_FREEZE=yes
+          OPLUS_FEATURE_STORAGE_TOOL=yes
+          OPLUS_FEATURE_MMC_DRIVER=yes
+          OPLUS_FEATURE_UFS_DRIVER=yes
+          OPLUS_FEATURE_UFS_SHOW_LATENCY=yes
+          OPLUS_FEATURE_AOD=yes
+          OPLUS_FEATURE_DC=yes
+          OPLUS_FEATURE_ENABLE_MODEM_DB=yes
+          OPLUS_FEATURE_ENGINEERTOOLS=yes
+          OPLUS_FEATURE_THEIA=yes
+          OPLUS_FEATURE_APP_MONITOR=yes
+          OPLUS_FEATURE_MULTI_KSWAPD=yes
+          OPLUS_FEATURE_PHOENIX=yes
+          OPLUS_FEATURE_SENSOR=yes
+          OPLUS_FEATURE_IOMONITOR=yes
+          OPLUS_FEATURE_MEMLEAK_DETECT=yes
+          OPLUS_FEATURE_WIFI_MTUDETECT=yes
+          OPLUS_FEATURE_WIFI_SLA=yes
+          OPLUS_FEATURE_CHG_BASIC=yes
+          EOL
+
+          # Copy to Makefile.oplus
+          cp OplusKernelEnvConfig.mk Makefile.oplus
+          echo "include Makefile.oplus" >> Makefile
+
+      - name: Build Kernel
+        run: |
+          # Set environment
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          # Clean previous build artifacts if any
+          rm -rf out/
+          mkdir -p out/
+          
+          # Configure and build
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
+
+      - name: Package Kernel
+        if: success()
+        run: |
+          # Clone AnyKernel3
+          git clone https://github.com/osm0sis/AnyKernel3
+          
+          # Configure AnyKernel3
+          cd AnyKernel3
+          sed -i 's/do.devicecheck=1/do.devicecheck=1/g' anykernel.sh
+          sed -i 's/device.name1=/device.name1=RMX3031/g' anykernel.sh
+          sed -i 's/device.name2=/device.name2=RMX3033/g' anykernel.sh
+          sed -i 's/device.name3=/device.name3=GTNeo/g' anykernel.sh
+          sed -i 's/device.name4=/device.name4=GTNeo2T/g' anykernel.sh
+          sed -i 's/device.name5=/device.name5=X7Max/g' anykernel.sh
+          
+          # Copy kernel
+          if [ -f "../out/arch/arm64/boot/Image.gz-dtb" ]; then
+            cp ../out/arch/arm64/boot/Image.gz-dtb .
+            zip -r9 ../X7Max-Kernel.zip * -x .git README.md *placeholder
+          fi
+          cd ..
+
+      - name: Upload Build Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-build-files
+          path: |
+            out/arch/arm64/boot/Image*
+            build.log
+            X7Max-Kernel.zip
+            OplusKernelEnvConfig.mk
+            out/.config
+          if-no-files-found: warn
