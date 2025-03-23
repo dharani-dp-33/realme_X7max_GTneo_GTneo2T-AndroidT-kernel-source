@@ -52,7 +52,7 @@ jobs:
             git
 
       # ========================
-      # 4. Setup Toolchain
+      # 4. Setup Toolchain (FIXED URL)
       # ========================
       - name: Setup Toolchain
         run: |
@@ -74,7 +74,6 @@ jobs:
             exit 1
           fi
           echo "DEFCONFIG_PATH=${DEFCONFIG}" >> $GITHUB_ENV
-          echo "DEFCONFIG_DIR=$(dirname ${DEFCONFIG})" >> $GITHUB_ENV
 
       # ========================
       # 6. Build Kernel
@@ -86,11 +85,9 @@ jobs:
           export CLANG_PATH=$(pwd)/../toolchain/clang-*/bin/clang
           export PATH=$(pwd)/../toolchain/clang-*/bin:$PATH
 
-          # Clean environment
+          # Clean and build
           make clean && make mrproper
-
-          # Build with error handling
-          set -e
+          set -e  # Fail on error
           make $DEFCONFIG_PATH
           make -j$(nproc) CC=clang 2>&1 | tee build.log
 
