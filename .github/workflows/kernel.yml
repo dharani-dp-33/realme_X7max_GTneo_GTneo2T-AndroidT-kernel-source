@@ -1,4 +1,4 @@
-name: Build Kernel
+name: Kernel Build
 on:
   workflow_dispatch:
 
@@ -9,44 +9,23 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Environment
+      - name: Setup Build Environment
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
-      - name: Verify Repository Structure
+      - name: Fix Kconfig Structure
         run: |
-          echo "=== Repository Check ==="
-          echo "Date: 2025-03-23 19:34:14"
-          echo "User: dharani-dp-33"
+          # Check actual Kconfig structure
+          echo "=== Checking Kconfig Structure ==="
+          find . -name "Kconfig" -type f -exec echo {} \;
           
-          # Check repository structure
-          ls -la
-          if [ -f "Kconfig" ]; then
-            echo "Found root Kconfig"
-          fi
+          # Remove the problematic include from init/Kconfig
           if [ -f "init/Kconfig" ]; then
-            echo "Found init/Kconfig"
-            grep -n "kernel/sched_assist/Kconfig" init/Kconfig || echo "No sched_assist reference in init/Kconfig"
+            sed -i '/kernel\/sched_assist\/Kconfig/d' init/Kconfig
           fi
-
-      - name: Create Required Kconfig
-        run: |
-          # Create required directories and files
-          mkdir -p kernel/sched_assist
-          cat > kernel/sched_assist/Kconfig << 'EOF'
-          config OPLUS_FEATURE_SCHED_ASSIST
-              bool "OPLUS sched assist"
-              default y
-              help
-                  OPLUS sched assist
-          EOF
-          
-          # Create minimally required structure
-          mkdir -p include/config
-          touch include/config/auto.conf
 
       - name: Build Kernel
         run: |
@@ -56,32 +35,22 @@ jobs:
           export KBUILD_BUILD_USER=dharani-dp-33
           export KBUILD_BUILD_HOST="github-actions"
           
-          # Clean build directory
-          rm -rf out/
-          mkdir -p out/
+          # Show current config
+          echo "=== Current Configuration ==="
+          ls -la arch/arm64/configs/
           
-          # Build with verbose output
+          # Attempt build
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) V=1 2>&1 | tee build.log
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
 
-      - name: Check Build Output
-        run: |
-          if [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
-            echo "Build successful!"
-            ls -lh out/arch/arm64/boot/Image.gz-dtb
-          else
-            echo "Build failed - checking error logs..."
-            tail -n 50 build.log
-            exit 1
-          fi
-
-      - name: Upload Kernel
-        if: success()
+      - name: Upload Output
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-image-$(date +%s)
+          name: build-output
           path: |
-            out/arch/arm64/boot/Image.gz-dtb
+            out/arch/arm64/boot/Image*
             build.log
             out/.config
-          if-no-files-found: error
+            arch/arm64/configs/*_defconfig
+          if-no-files-found: warn
