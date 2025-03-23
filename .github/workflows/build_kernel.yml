@@ -11,70 +11,106 @@ jobs:
         with:
           fetch-depth: 0
           
+      - name: Install Required Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tree gcc-aarch64-linux-gnu gcc build-essential \
+          libssl-dev make bc bison flex libelf-dev zip
+
       - name: Analyze Repository Structure
         run: |
-          echo "=== Repository Analysis ==="
-          echo "1. Current Directory:"
-          pwd
+          # Create output directory
+          mkdir -p analysis_output
           
-          echo -e "\n2. Root Contents:"
-          ls -la
+          {
+            echo "=== Repository Analysis ==="
+            echo "Timestamp: $(date -u)"
+            echo "Working Directory: $(pwd)"
+            
+            echo -e "\n1. Root Directory Contents:"
+            ls -la
+            
+            echo -e "\n2. Looking for sched_assist directories:"
+            find . -name "sched_assist" -type d
+            
+            echo -e "\n3. Looking for klockopt directories:"
+            find . -name "klockopt" -type d
+            
+            echo -e "\n4. All Kconfig files:"
+            find . -name "Kconfig"
+            
+            echo -e "\n5. Directory Structure:"
+            tree -L 4 || echo "Tree command failed"
+            
+            echo -e "\n6. Symlinks:"
+            find . -type l -ls
+            
+            echo -e "\n7. Important Paths Content:"
+            echo "kernel/ directory:"
+            ls -la kernel/ 2>/dev/null || echo "No kernel directory"
+            echo -e "\ndrivers/ directory:"
+            ls -la drivers/ 2>/dev/null || echo "No drivers directory"
+            echo -e "\nvendor/ directory:"
+            ls -la vendor/ 2>/dev/null || echo "No vendor directory"
+            
+            echo -e "\n8. Kconfig Contents:"
+            for f in $(find . -name "Kconfig"); do
+              echo -e "\nFile: $f"
+              echo "===================="
+              cat "$f" 2>/dev/null || echo "Cannot read file"
+            done
+            
+            echo -e "\n=== Analysis Complete ==="
+          } | tee analysis_output/repository-analysis.txt
           
-          echo -e "\n3. Looking for existing sched_assist:"
-          find . -name "sched_assist" -type d
-          
-          echo -e "\n4. Looking for existing klockopt:"
-          find . -name "klockopt" -type d
-          
-          echo -e "\n5. Looking for all Kconfig files:"
-          find . -name "Kconfig"
-          
-          echo -e "\n6. Checking vendors directory:"
-          ls -la vendor/ 2>/dev/null || echo "No vendor directory"
-          
-          echo -e "\n7. Checking drivers directory:"
-          ls -la drivers/ 2>/dev/null || echo "No drivers directory"
-          
-          echo -e "\n8. Checking kernel directory:"
-          ls -la kernel/ 2>/dev/null || echo "No kernel directory"
-          
-          echo -e "\n9. Full path of any existing sched_assist:"
-          readlink -f $(find . -name "sched_assist" -type d) 2>/dev/null || echo "No sched_assist found"
-          
-          echo -e "\n10. Directory tree (limited depth):"
-          tree -L 3 2>/dev/null || echo "Tree command not found"
-          
-          echo -e "\n=== Analysis Complete ==="
+          # List the analysis files
+          echo -e "\nGenerated Analysis Files:"
+          ls -l analysis_output/
 
-      - name: Install Tree
-        run: sudo apt-get install -y tree
-
-      - name: Detailed Directory Analysis
+      - name: Check and Document Current Files
         run: |
-          echo "=== Detailed Analysis ==="
-          
-          echo -e "\n1. Full directory tree of important paths:"
-          tree -L 4 kernel/ 2>/dev/null || echo "No kernel directory"
-          tree -L 4 drivers/ 2>/dev/null || echo "No drivers directory"
-          tree -L 4 vendor/ 2>/dev/null || echo "No vendor directory"
-          
-          echo -e "\n2. All symlinks in repository:"
-          find . -type l -ls
-          
-          echo -e "\n3. All Kconfig files with contents:"
-          for f in $(find . -name "Kconfig"); do
-            echo -e "\nFile: $f"
-            echo "===================="
-            cat "$f" 2>/dev/null || echo "Cannot read file"
-          done
-          
-          echo -e "\n=== Analysis Complete ==="
+          {
+            echo "=== Current File Status Check ==="
+            echo "Timestamp: $(date -u)"
+            
+            echo -e "\n1. Checking sched_assist:"
+            if [ -d "kernel/sched_assist" ]; then
+              echo "kernel/sched_assist exists"
+              ls -la kernel/sched_assist/
+            else
+              echo "kernel/sched_assist does not exist"
+            fi
+            
+            echo -e "\n2. Checking klockopt:"
+            if [ -d "kernel/locking/klockopt" ]; then
+              echo "kernel/locking/klockopt exists"
+              ls -la kernel/locking/klockopt/
+            else
+              echo "kernel/locking/klockopt does not exist"
+            fi
+            
+            echo -e "\n3. Full paths of key directories:"
+            find . -name "sched_assist" -type d -exec readlink -f {} \;
+            find . -name "klockopt" -type d -exec readlink -f {} \;
+            
+            echo -e "\n4. Git Status:"
+            git status
+            
+            echo -e "\n=== Status Check Complete ==="
+          } | tee analysis_output/current-status.txt
 
       - name: Upload Analysis Results
         uses: actions/upload-artifact@v4
         with:
           name: repository-analysis
-          path: |
-            repository-analysis.txt
-            directory-analysis.txt
-          if-no-files-found: warn
+          path: analysis_output/
+          if-no-files-found: error
+
+      - name: Display Analysis Summary
+        run: |
+          echo "=== Analysis Summary ==="
+          echo "Files generated:"
+          ls -l analysis_output/
+          
+          echo -e "\nKey findings:"
+          grep -h "exists\|directory\|File:" analysis_output/*.txt || echo "No key findings found"
