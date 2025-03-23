@@ -1,4 +1,4 @@
-name: Build Kernel Module
+name: Build Kernel
 on:
   workflow_dispatch:
 
@@ -6,53 +6,67 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Kernel
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          repository: dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
           fetch-depth: 0
           
       - name: Setup Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential libssl-dev make bc bison flex libelf-dev zip
-
-      - name: Update Kconfig Files
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
+          libssl-dev make bc bison flex libelf-dev zip
+      
+      - name: Setup Configuration Files
         run: |
-          # Just update the Kconfig files without creating directories
-          echo "Updating Kconfig files..."
+          # Create missing directories and files
+          mkdir -p kernel/sched_assist
+          mkdir -p kernel/locking/klockopt
           
-          # Update sched_assist Kconfig
-          echo "config SCHED_ASSIST
-            bool \"Scheduler Assist\"
-            default n
+          # Create sched_assist Kconfig
+          cat > kernel/sched_assist/Kconfig << 'EOL'
+          config OPLUS_FEATURE_SCHED_ASSIST
+            bool "Enable sched assist enhanced scheduling features"
+            depends on CGROUP_SCHED
             help
-              Enable scheduler assist features" > kernel/sched_assist/Kconfig
+              Enable scheduler assist enhanced scheduling features,
+              including UI thread optimization and other enhancements.
           
-          # Update klockopt Kconfig
-          echo "config KLOCKOPT
-            bool \"Kernel Lock Optimization\"
-            default n
+          config OPLUS_FEATURE_SCHED_ASSIST_CPUFREQ
+            bool "Scheduler assist CPUFreq enhancement"
+            depends on OPLUS_FEATURE_SCHED_ASSIST
             help
-              Enable kernel lock optimization features" > kernel/locking/klockopt/Kconfig
+              Enable scheduler assist CPUFreq enhancement features.
+          EOL
           
-          # Set permissions
-          chmod 644 kernel/sched_assist/Kconfig
-          chmod 644 kernel/locking/klockopt/Kconfig
+          # Create klockopt Kconfig
+          cat > kernel/locking/klockopt/Kconfig << 'EOL'
+          config KLOCKOPT
+            bool "Enable kernel lock optimization"
+            depends on LOCK_DEBUGGING_SUPPORT
+            help
+              Enable kernel lock optimization features.
+              This helps improve locking performance.
+          EOL
           
-          echo "Kconfig files updated successfully"
+          # Verify files
+          echo "=== sched_assist/Kconfig ==="
+          cat kernel/sched_assist/Kconfig
+          echo -e "\n=== klockopt/Kconfig ==="
+          cat kernel/locking/klockopt/Kconfig
 
-      - name: Prepare Build
+      - name: Configure Kernel
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          echo "Cleaning any previous build artifacts..."
-          make mrproper
-          
+          # List available configs
           echo "Available defconfigs:"
           ls -la arch/arm64/configs/
+          
+          # Use the debug config
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
 
       - name: Build Kernel
         run: |
@@ -60,29 +74,60 @@ jobs:
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          echo "Starting kernel build..."
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc)
+          # Build with verbose output
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) V=1 2>&1 | tee build.log
+          
+          # Check if build succeeded
+          if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+            echo "Build completed successfully!"
+          else
+            echo "Build failed! Check build.log for details."
+            tail -n 50 build.log
+            exit 1
+          fi
 
-      - name: Package Build
+      - name: Package Artifacts
         if: success()
         run: |
           mkdir -p release
-          [ -f out/arch/arm64/boot/Image.gz ] && cp out/arch/arm64/boot/Image.gz release/
-          [ -f out/arch/arm64/boot/Image ] && cp out/arch/arm64/boot/Image release/
-          find out/ -name "*.ko" -exec cp {} release/ \; || true
+          if [ -f "out/arch/arm64/boot/Image.gz" ]; then
+            cp out/arch/arm64/boot/Image.gz release/
+          fi
+          if [ -f "out/arch/arm64/boot/Image" ]; then
+            cp out/arch/arm64/boot/Image release/
+          fi
           
+          # Copy kernel modules if any
+          find out/ -name "*.ko" -exec cp {} release/ \;
+          
+          # Create zip if we have files
           if [ "$(ls -A release/)" ]; then
-            cd release && zip -r ../kernel-module.zip *
+            cd release && zip -r ../kernel-artifacts.zip *
           fi
 
-      - name: Upload Build Output
-        if: always()
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: kernel-build
+          name: kernel-build-files
           path: |
             release/
-            kernel-module.zip
+            kernel-artifacts.zip
+            build.log
             out/arch/arm64/boot/
+            kernel/sched_assist/Kconfig
+            kernel/locking/klockopt/Kconfig
+          if-no-files-found: warn
+
+      - name: Upload Debug Info
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-info
+          path: |
+            out/.config
+            build.log
+            init/Kconfig
+            kernel/sched_assist/Kconfig
+            kernel/locking/klockopt/Kconfig
           if-no-files-found: warn
