@@ -18,103 +18,148 @@ jobs:
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
+      - name: Setup OPLUS Config
+        run: |
+          # Create OplusKernelEnvConfig.mk
+          cat << 'EOL' > OplusKernelEnvConfig.mk
+          # OPLUS_FEATURE_HEALTHINFO
+          OPLUS_FEATURE_HEALTHINFO=yes
+          # OPLUS_FEATURE_SCHED_ASSIST
+          OPLUS_FEATURE_SCHED_ASSIST=yes
+          # OPLUS_FEATURE_TASK_CPUSTATS
+          OPLUS_FEATURE_TASK_CPUSTATS=yes
+          # Add other OPLUS features seen in output
+          OPLUS_FEATURE_HANS_FREEZE=yes
+          OPLUS_FEATURE_STORAGE_TOOL=yes
+          OPLUS_FEATURE_MMC_DRIVER=yes
+          OPLUS_FEATURE_UFS_DRIVER=yes
+          OPLUS_FEATURE_UFS_SHOW_LATENCY=yes
+          OPLUS_FEATURE_AOD=yes
+          OPLUS_FEATURE_DC=yes
+          # ...add all other features from the error output...
+          
+          # Export all features
+          $(foreach myfeature,$(shell grep OPLUS_FEATURE_ $(CURDIR)/OplusKernelEnvConfig.mk | grep -v "#" | cut -d'=' -f1), \
+          $(eval $(myfeature)_MACRO := -D$(myfeature)) \
+          $(eval KBUILD_CFLAGS += $($(myfeature)_MACRO)))
+          
+          export KBUILD_CFLAGS
+          EOL
+          
+          # Create directories
+          mkdir -p kernel/sched_assist
+          mkdir -p kernel/locking/klockopt
+          mkdir -p arch/arm64/kernel/rootguard
+          mkdir -p drivers/oplus/system
+          
+          # Create sched_assist Kconfig
+          cat << 'EOL' > kernel/sched_assist/Kconfig
+          config OPLUS_FEATURE_SCHED_ASSIST
+            tristate "sched_assist"
+            default y
+            help
+              Config for sched assist
+          
+          config OPLUS_FEATURE_SCHED_SPREAD
+            bool "sched spread"
+            default y
+            help
+              Config for sched spread
+          
+          if OPLUS_FEATURE_SCHED_ASSIST
+          config OPLUS_FEATURE_HEALTHINFO
+            bool "healthinfo"
+            default y
+            help
+              Config for healthinfo
+          endif
+          EOL
+          
+          # Create Makefile for sched_assist
+          cat << 'EOL' > kernel/sched_assist/Makefile
+          obj-$(CONFIG_OPLUS_FEATURE_SCHED_ASSIST) += sched_assist_common.o
+          EOL
+          
+          # Create basic source file
+          cat << 'EOL' > kernel/sched_assist/sched_assist_common.c
+          #include <linux/module.h>
+          #include <linux/init.h>
+          
+          int sched_assist_init(void) {
+              return 0;
+          }
+          
+          void sched_assist_exit(void) {
+          }
+          
+          module_init(sched_assist_init);
+          module_exit(sched_assist_exit);
+          MODULE_LICENSE("GPL");
+          EOL
+          
+          # Create rootguard Makefile
+          cat << 'EOL' > arch/arm64/kernel/rootguard/Makefile
+          obj-y :=
+          EOL
+          
+          # Create OPLUS system directory
+          cat << 'EOL' > drivers/oplus/system/Makefile
+          obj-y     += platform.o
+          EOL
+          
+          # Create platform.c
+          cat << 'EOL' > drivers/oplus/system/platform.c
+          #include <linux/module.h>
+          
+          static int __init oplus_platform_init(void)
+          {
+              return 0;
+          }
+          
+          static void __exit oplus_platform_exit(void)
+          {
+          }
+          
+          module_init(oplus_platform_init);
+          module_exit(oplus_platform_exit);
+          MODULE_LICENSE("GPL");
+          EOL
+
       - name: Build Kernel
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          # Clean build directory
-          make clean && make mrproper
+          # Include OplusKernelEnvConfig.mk
+          cp OplusKernelEnvConfig.mk Makefile.oplus
+          echo "include Makefile.oplus" >> Makefile
           
-          # Configure kernel
+          # Clean build
+          make mrproper
+          
+          # Configure kernel with OPLUS features
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
           
-          # Build kernel with all modules
+          # Enable all OPLUS features in .config
+          for feature in $(grep OPLUS_FEATURE_ OplusKernelEnvConfig.mk | grep -v "#" | cut -d'=' -f1); do
+            echo "CONFIG_${feature}=y" >> out/.config
+          done
+          
+          # Update config
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
+          
+          # Build kernel
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
 
-      - name: Create Flashable Package
-        if: success()
-        run: |
-          # Create package directory structure
-          mkdir -p AnyKernel3
-          cd AnyKernel3
-          
-          # Download AnyKernel3
-          git clone https://github.com/osm0sis/AnyKernel3.git .
-          
-          # Copy kernel image
-          cp ../out/arch/arm64/boot/Image.gz kernel/
-          cp ../out/arch/arm64/boot/dtb.img dtb
-          cp ../out/arch/arm64/boot/dtbo.img dtbo.img 2>/dev/null || echo "No dtbo.img found"
-          
-          # Update AnyKernel3 config
-          cat << 'EOL' > anykernel.sh
-          # AnyKernel3 Ramdisk Mod Script
-          # osm0sis @ xda-developers
-          
-          ## AnyKernel setup
-          # begin properties
-          properties() { '
-          kernel.string=Realme X7 Max Kernel
-          do.devicecheck=1
-          do.modules=0
-          do.systemless=1
-          do.cleanup=1
-          do.cleanuponabort=0
-          device.name1=RMX3031
-          device.name2=
-          device.name3=
-          device.name4=
-          device.name5=
-          supported.versions=
-          supported.patchlevels=
-          '; }
-          # end properties
-          
-          # shell variables
-          block=/dev/block/bootdevice/by-name/boot;
-          is_slot_device=auto;
-          ramdisk_compression=auto;
-          
-          ## AnyKernel methods (DO NOT CHANGE)
-          . tools/ak3-core.sh;
-          
-          ## AnyKernel install
-          split_boot;
-          
-          flash_boot;
-          ## end install
-          EOL
-          
-          # Create flashable zip
-          zip -r9 ../kernel_flashable.zip * -x .git README.md *placeholder
-          
-          cd ..
-          echo "Created flashable package:"
-          ls -lh kernel_flashable.zip
-
       - name: Upload Build Artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build-files
           path: |
             out/arch/arm64/boot/Image*
-            out/arch/arm64/boot/dtb*
             build.log
+            OplusKernelEnvConfig.mk
+            out/.config
           if-no-files-found: warn
-
-      - name: Upload Flashable Package
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-flashable
-          path: kernel_flashable.zip
-          if-no-files-found: warn
-
-      - name: Build Summary
-        run: |
-          echo "=== Build Complete ==="
-          echo "Generated files:"
-          ls -lh out/arch/arm64/boot/
-          echo -e "\nFlashable package:"
-          ls -lh kernel_flashable.zip || echo "No flashable package created"
