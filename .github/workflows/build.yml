@@ -1,0 +1,25 @@
+name: X7Max Kernel Build
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: master  # Confirm branch matches your repo
+
+      - name: Setup Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu build-essential libssl-dev
+
+      - name: Configure Kernel
+        run: |
+          export ARCH=arm64
+          make k6891v1_64_k419_defconfig
+
+      - name: Build Kernel
+        run: make -j$(nproc)
