@@ -18,4 +18,9 @@ jobs:
         repository: dharani-dp-33/MemKernel
         path: MemKernel
 
-    # Rest of the workflow remains same as previous
+    # Rest of the workflow remains same as previous- 
+    name: Upload Artifact  
+  uses: actions/upload-artifact@v3  
+  with:  
+    name: kernel-build  # Name of the artifact  
+    path: path/to/your/kernel/files/  # Replace with actual folder (e.g., "output/", "bin/")
