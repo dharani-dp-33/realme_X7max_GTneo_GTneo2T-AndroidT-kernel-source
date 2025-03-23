@@ -17,45 +17,38 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential libssl-dev make bc bison flex libelf-dev zip
 
-      - name: Modify Kconfig Dependencies
+      - name: Create Missing Kconfig Files
         run: |
-          echo "Checking init/Kconfig content..."
-          grep -n "sched_assist" init/Kconfig || echo "No direct reference found"
+          # Create directories
+          mkdir -p kernel/sched_assist
+          mkdir -p kernel/locking/klockopt
           
-          echo "Creating backup of init/Kconfig..."
-          cp init/Kconfig init/Kconfig.backup
-          
-          echo "Modifying init/Kconfig..."
-          sed -i '/kernel\/sched_assist\/Kconfig/d' init/Kconfig
-          
-          echo "Verifying changes..."
-          diff init/Kconfig.backup init/Kconfig || true
-
-      - name: Prepare Build Configuration
-        run: |
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          
-          echo "Available defconfigs:"
-          ls -la arch/arm64/configs/
-          
-          echo "Creating minimal defconfig..."
-          cat << EOF > arch/arm64/configs/minimal_defconfig
-          CONFIG_ARM64=y
-          CONFIG_CROSS_COMPILE="aarch64-linux-gnu-"
-          CONFIG_LOCALVERSION=""
-          CONFIG_DEFAULT_HOSTNAME="android"
-          CONFIG_SYSVIPC=y
-          CONFIG_POSIX_MQUEUE=y
-          CONFIG_FHANDLE=y
-          CONFIG_AUDIT=y
-          CONFIG_NO_HZ=y
-          CONFIG_HIGH_RES_TIMERS=y
-          CONFIG_PREEMPT=y
-          CONFIG_MODULES=y
-          CONFIG_MODULE_UNLOAD=y
+          # Create sched_assist Kconfig
+          cat << EOF > kernel/sched_assist/Kconfig
+          config SCHED_ASSIST
+            bool "Scheduler Assist"
+            default n
+            help
+              Enable scheduler assist features
           EOF
+          
+          # Create klockopt Kconfig
+          cat << EOF > kernel/locking/klockopt/Kconfig
+          config KLOCKOPT
+            bool "Kernel Lock Optimization"
+            default n
+            help
+              Enable kernel lock optimization features
+          EOF
+          
+          # Verify files were created
+          echo "Verifying created files:"
+          ls -la kernel/sched_assist/Kconfig
+          ls -la kernel/locking/klockopt/Kconfig
+          
+          # Make sure files are readable
+          chmod 644 kernel/sched_assist/Kconfig
+          chmod 644 kernel/locking/klockopt/Kconfig
 
       - name: Build Kernel
         run: |
@@ -63,12 +56,18 @@ jobs:
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          echo "Starting build with minimal config..."
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE minimal_defconfig
+          # Find available defconfigs
+          echo "Available defconfigs:"
+          ls -la arch/arm64/configs/
           
-          echo "Building kernel..."
+          # Use the original defconfig
+          echo "Using k6891v1_64_k419_debug_defconfig..."
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
+          
+          # Start the build
+          echo "Starting kernel build..."
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) || {
-            echo "Build failed. Checking error log..."
+            echo "Build failed. Checking logs..."
             if [ -f "out/error.log" ]; then
               tail -n 50 out/error.log
             fi
@@ -78,34 +77,39 @@ jobs:
       - name: Check Build Output
         if: always()
         run: |
-          echo "Checking build artifacts..."
+          echo "Checking build output..."
           if [ -d "out/arch/arm64/boot" ]; then
             ls -la out/arch/arm64/boot/
           else
             echo "Boot directory not found"
           fi
+          
+          echo "Checking for kernel modules..."
+          find out/ -name "*.ko" || echo "No kernel modules found"
 
-      - name: Create Release Package
+      - name: Package Output
         if: success()
         run: |
           mkdir -p release
-          if [ -f "out/arch/arm64/boot/Image.gz" ]; then
-            cp out/arch/arm64/boot/Image.gz release/
-          fi
-          if [ -f "out/arch/arm64/boot/Image" ]; then
-            cp out/arch/arm64/boot/Image release/
-          fi
-          find out/ -name "*.ko" -exec cp {} release/ \;
+          # Copy kernel images if they exist
+          cp out/arch/arm64/boot/Image.gz release/ 2>/dev/null || echo "No Image.gz found"
+          cp out/arch/arm64/boot/Image release/ 2>/dev/null || echo "No Image found"
           
+          # Copy kernel modules if they exist
+          find out/ -name "*.ko" -exec cp {} release/ \; || echo "No kernel modules found"
+          
+          # Create zip if we have files
           if [ "$(ls -A release/)" ]; then
             cd release && zip -r ../kernel-module.zip *
+          else
+            echo "No files to package"
           fi
 
       - name: Upload Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-build
+          name: kernel-build-output
           path: |
             release/
             kernel-module.zip
@@ -120,6 +124,6 @@ jobs:
           path: |
             out/.config
             out/error.log
-            init/Kconfig
-            init/Kconfig.backup
+            kernel/sched_assist/Kconfig
+            kernel/locking/klockopt/Kconfig
           if-no-files-found: warn
