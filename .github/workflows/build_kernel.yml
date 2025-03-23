@@ -17,26 +17,37 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential libssl-dev make bc bison flex libelf-dev zip
 
-      - name: Create Missing Directory and Files
+      - name: Check Directory Structure
         run: |
-          mkdir -p kernel/sched_assist
-          touch kernel/sched_assist/Kconfig
-          echo "# Scheduler Assist Configuration" > kernel/sched_assist/Kconfig
-          echo "config SCHED_ASSIST" >> kernel/sched_assist/Kconfig
-          echo "  bool \"Scheduler Assist\"" >> kernel/sched_assist/Kconfig
-          echo "  default n" >> kernel/sched_assist/Kconfig
-
-      - name: List Available Configs
-        run: |
+          echo "Checking directory structure..."
+          ls -la kernel/
+          echo "Content of sched_assist directory:"
+          ls -la kernel/sched_assist/ || echo "Directory empty or inaccessible"
           echo "Available defconfigs:"
-          ls arch/arm64/configs/
-          
+          ls -la arch/arm64/configs/
+
+      - name: Update Kconfig
+        run: |
+          if [ ! -f kernel/sched_assist/Kconfig ]; then
+            echo "# Scheduler Assist Configuration" > kernel/sched_assist/Kconfig
+            echo "config SCHED_ASSIST" >> kernel/sched_assist/Kconfig
+            echo "  bool \"Scheduler Assist\"" >> kernel/sched_assist/Kconfig
+            echo "  default n" >> kernel/sched_assist/Kconfig
+          fi
+
       - name: Build Kernel
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export DEFCONFIG=oppo6889_defconfig
+          
+          # First, let's check what defconfigs are available
+          echo "Available defconfigs:"
+          ls arch/arm64/configs/
+          
+          # Try to use the correct defconfig
+          export DEFCONFIG=$(ls arch/arm64/configs/ | grep -i "oppo\|mediatek" | head -n 1)
+          echo "Using defconfig: ${DEFCONFIG}"
           
           # Enable module loading
           echo "CONFIG_MODULES=y" >> arch/arm64/configs/${DEFCONFIG}
