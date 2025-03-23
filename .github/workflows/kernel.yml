@@ -18,19 +18,163 @@ jobs:
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
-      - name: Handle Symlink Target
+      - name: Setup OPLUS Features
         run: |
-          # Create the target directory structure following the symlink
-          mkdir -p vendor/oplus/kernel/secureguard/rootguard
+          # First verify and create vendor directory structure
+          mkdir -p \
+            vendor/oplus/kernel/secureguard/rootguard \
+            vendor/oplus/kernel/include
+
+          # Create version info headers
+          mkdir -p vendor/oplus/kernel/include
+          cat > vendor/oplus/kernel/include/oplus_version.h << EOF
+          #ifndef _OPLUS_VERSION_H_
+          #define _OPLUS_VERSION_H_
           
-          # Create files in the target directory that the symlink points to
-          echo 'obj-y := rootguard.o' > vendor/oplus/kernel/secureguard/rootguard/Makefile
+          #define OPLUS_BUILD_DATE "2025-03-23"
+          #define OPLUS_BUILD_TIME "17:00:29"
+          #define OPLUS_BUILD_USER "dharani-dp-33"
           
-          # Create a minimal rootguard.c
-          cat > vendor/oplus/kernel/secureguard/rootguard/rootguard.c << 'EOF'
+          #endif /* _OPLUS_VERSION_H_ */
+          EOF
+
+          # Create all OPLUS feature directories
+          mkdir -p \
+            kernel/sched_assist \
+            kernel/healthinfo \
+            kernel/task_cpustats \
+            kernel/hans \
+            kernel/storage_tool \
+            drivers/mmc/oplus \
+            drivers/scsi/ufs/oplus \
+            drivers/aod \
+            drivers/dc \
+            drivers/modem \
+            drivers/engineertools \
+            drivers/theia \
+            drivers/app_monitor \
+            mm/multi_kswapd \
+            drivers/phoenix \
+            drivers/sensor \
+            drivers/iomonitor \
+            mm/memleak_detect \
+            net/oplus_wifi_mtu \
+            net/oplus_wifi_sla \
+            drivers/power/oplus \
+            drivers/soc/oplus \
+            drivers/input/oplus \
+            drivers/misc/oplus
+
+          # Create master OPLUS Kconfig
+          mkdir -p drivers/oplus
+          cat > drivers/oplus/Kconfig << 'EOF'
+          menu "OPLUS Features Configuration"
+          
+          config OPLUS_SYSTEM_KERNEL
+            bool "OPLUS system kernel"
+            default y
+            help
+              OPLUS system kernel features
+          
+          source "kernel/sched_assist/Kconfig"
+          source "kernel/healthinfo/Kconfig"
+          source "kernel/task_cpustats/Kconfig"
+          source "kernel/hans/Kconfig"
+          source "kernel/storage_tool/Kconfig"
+          source "drivers/mmc/oplus/Kconfig"
+          source "drivers/scsi/ufs/oplus/Kconfig"
+          source "drivers/aod/Kconfig"
+          source "drivers/dc/Kconfig"
+          source "drivers/modem/Kconfig"
+          source "drivers/engineertools/Kconfig"
+          source "drivers/theia/Kconfig"
+          source "drivers/app_monitor/Kconfig"
+          source "mm/multi_kswapd/Kconfig"
+          source "drivers/phoenix/Kconfig"
+          source "drivers/sensor/Kconfig"
+          source "drivers/iomonitor/Kconfig"
+          source "mm/memleak_detect/Kconfig"
+          source "net/oplus_wifi_mtu/Kconfig"
+          source "net/oplus_wifi_sla/Kconfig"
+          source "drivers/power/oplus/Kconfig"
+          source "drivers/soc/oplus/Kconfig"
+          source "drivers/input/oplus/Kconfig"
+          source "drivers/misc/oplus/Kconfig"
+          endmenu
+          EOF
+
+          # Create Kconfig and basic files for each OPLUS feature
+          for dir in \
+            kernel/sched_assist \
+            kernel/healthinfo \
+            kernel/task_cpustats \
+            kernel/hans \
+            kernel/storage_tool \
+            drivers/mmc/oplus \
+            drivers/scsi/ufs/oplus \
+            drivers/aod \
+            drivers/dc \
+            drivers/modem \
+            drivers/engineertools \
+            drivers/theia \
+            drivers/app_monitor \
+            mm/multi_kswapd \
+            drivers/phoenix \
+            drivers/sensor \
+            drivers/iomonitor \
+            mm/memleak_detect \
+            net/oplus_wifi_mtu \
+            net/oplus_wifi_sla \
+            drivers/power/oplus \
+            drivers/soc/oplus \
+            drivers/input/oplus \
+            drivers/misc/oplus; do
+            
+            feature=$(basename $dir | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+            
+            # Create Kconfig
+            cat > "${dir}/Kconfig" << EOF
+          config OPLUS_FEATURE_${feature}
+              tristate "OPLUS ${feature} feature"
+              default y
+              help
+                OPLUS ${feature} feature
+          EOF
+            
+            # Create Makefile
+            echo "obj-\$(CONFIG_OPLUS_FEATURE_${feature}) += ${feature,,}.o" > "${dir}/Makefile"
+            
+            # Create basic .c file
+            cat > "${dir}/${feature,,}.c" << EOF
           #include <linux/init.h>
           #include <linux/module.h>
           #include <linux/kernel.h>
+          #include "../../vendor/oplus/kernel/include/oplus_version.h"
+
+          static int __init oplus_${feature,,}_init(void)
+          {
+              return 0;
+          }
+
+          static void __exit oplus_${feature,,}_exit(void)
+          {
+          }
+
+          module_init(oplus_${feature,,}_init);
+          module_exit(oplus_${feature,,}_exit);
+
+          MODULE_LICENSE("GPL");
+          MODULE_DESCRIPTION("OPLUS ${feature} Driver");
+          EOF
+          done
+
+          # Special handling for rootguard due to symlink
+          echo 'obj-y := rootguard.o' > vendor/oplus/kernel/secureguard/rootguard/Makefile
+          cat > vendor/oplus/kernel/secureguard/rootguard/rootguard.c << EOF
+          #include <linux/init.h>
+          #include <linux/module.h>
+          #include <linux/kernel.h>
+          #include "../../include/oplus_version.h"
 
           static int __init rootguard_init(void)
           {
@@ -43,9 +187,20 @@ jobs:
 
           module_init(rootguard_init);
           module_exit(rootguard_exit);
+
           MODULE_LICENSE("GPL");
           MODULE_DESCRIPTION("OPLUS Rootguard Module");
           EOF
+
+          # Add main OPLUS Makefile
+          echo 'obj-y += kernel/' > vendor/oplus/Makefile
+          echo 'obj-y += secureguard/' > vendor/oplus/kernel/Makefile
+
+          # Verify critical paths
+          echo "=== Verifying Directory Structure ==="
+          ls -la vendor/oplus/kernel/secureguard/rootguard/
+          ls -la vendor/oplus/kernel/include/
+          ls -la kernel/sched_assist/
 
       - name: Build Kernel
         run: |
@@ -53,11 +208,10 @@ jobs:
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          # Clean build directory
           rm -rf out/
           mkdir -p out/
           
-          # Build
+          echo "=== Starting Kernel Build ==="
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
 
