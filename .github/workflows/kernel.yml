@@ -18,21 +18,27 @@ jobs:
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
-      - name: Update OPLUS Files
+      - name: Setup Required Paths
         run: |
-          # DO NOT create directories - just update files
-          
-          # 1. Update version header
+          # First check what exists
+          echo "=== Current Directory Structure ==="
+          ls -R
+
+          # Create only the essential parent directories
+          mkdir -p vendor/oplus/kernel/include
+          mkdir -p vendor/oplus/kernel/secureguard/rootguard
+
+          # Update version header
           cat > vendor/oplus/kernel/include/oplus_version.h << 'EOF'
           #ifndef _OPLUS_VERSION_H_
           #define _OPLUS_VERSION_H_
           #define OPLUS_BUILD_DATE "2025-03-23"
-          #define OPLUS_BUILD_TIME "17:28:58"
+          #define OPLUS_BUILD_TIME "17:38:36"
           #define OPLUS_BUILD_USER "dharani-dp-33"
           #endif
           EOF
 
-          # 2. Update rootguard files
+          # Update rootguard files
           cat > vendor/oplus/kernel/secureguard/rootguard/Makefile << 'EOF'
           obj-y := rootguard.o
           EOF
@@ -51,6 +57,14 @@ jobs:
           MODULE_LICENSE("GPL");
           MODULE_DESCRIPTION("OPLUS Rootguard Module");
           EOF
+
+          # Create main OPLUS Makefiles
+          echo 'obj-y += kernel/' > vendor/oplus/Makefile
+          echo 'obj-y += secureguard/' > vendor/oplus/kernel/Makefile
+
+          # Show final structure
+          echo "=== Final Directory Structure ==="
+          ls -R vendor/oplus
 
       - name: Build Kernel
         run: |
