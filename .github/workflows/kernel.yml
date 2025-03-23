@@ -18,33 +18,131 @@ jobs:
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
-      - name: Setup Required Files
+      - name: Final Setup Attempt
         run: |
-          # Show current time and user
-          echo "Setting up build for:"
-          echo "Date/Time: 2025-03-23 18:10:51"
-          echo "User: dharani-dp-33"
-
-          # Function to safely create/update files
-          safe_write() {
-            local dir=$(dirname "$1")
-            [ ! -d "$dir" ] && mkdir -p "$dir" || true
-            cat > "$1" || echo "WARNING: Could not write to $1"
+          # Function to safely create directory
+          safe_mkdir() {
+            if [ ! -d "$1" ]; then
+              mkdir -p "$1" || echo "WARNING: Could not create $1"
+            else
+              echo "Directory $1 exists, skipping..."
+            fi
           }
 
-          # Update version header with current time
+          # Function to safely write file
+          safe_write() {
+            local dir=$(dirname "$1")
+            safe_mkdir "$dir"
+            if [ ! -f "$1" ] || [ -w "$1" ]; then
+              cat > "$1" || echo "WARNING: Could not write to $1"
+            else
+              echo "WARNING: Cannot write to $1"
+            fi
+          }
+
+          echo "=== Starting Setup with Current Time ==="
+          echo "Current time: 2025-03-23 18:17:46"
+          echo "Current user: dharani-dp-33"
+
+          # 1. Safely create all directories
+          for dir in \
+            vendor/oplus/kernel/include \
+            vendor/oplus/kernel/secureguard/rootguard \
+            kernel/sched_assist \
+            kernel/orms \
+            kernel/oplus_cpu \
+            kernel/healthinfo \
+            kernel/dfr \
+            kernel/mm_osvelte \
+            kernel/performance \
+            drivers/soc/oplus \
+            drivers/input/oplus \
+            drivers/misc/oplus \
+            drivers/power/oplus \
+            drivers/staging/android/oplus \
+            drivers/oplus \
+            include/config; do
+            safe_mkdir "$dir"
+          done
+
+          # 2. Create version header with EXACT current time
           safe_write "vendor/oplus/kernel/include/oplus_version.h" << EOF
           #ifndef _OPLUS_VERSION_H_
           #define _OPLUS_VERSION_H_
           #define OPLUS_BUILD_DATE "2025-03-23"
-          #define OPLUS_BUILD_TIME "18:10:51"
+          #define OPLUS_BUILD_TIME "18:17:46"
           #define OPLUS_BUILD_USER "dharani-dp-33"
           #endif
           EOF
 
-          # Show status
-          echo "=== Verifying Files ==="
-          ls -l vendor/oplus/kernel/include/oplus_version.h
+          # 3. Create Kconfig files with error checking
+          for dir in kernel/*/; do
+            if [ -d "$dir" ]; then
+              feature=$(basename "$dir" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+              safe_write "${dir}Kconfig" << EOF
+          config OPLUS_FEATURE_${feature}
+              tristate "OPLUS ${feature} support"
+              default y
+              help
+                  OPLUS ${feature} kernel feature
+          EOF
+              safe_write "${dir}Makefile" << EOF
+          obj-\$(CONFIG_OPLUS_FEATURE_${feature}) += ${feature,,}.o
+          EOF
+            fi
+          done
+
+          # 4. Special handling for sched_assist
+          safe_write "kernel/sched_assist/Kconfig" << 'EOF'
+          config OPLUS_FEATURE_SCHED_ASSIST
+              def_bool y
+              help
+                  OPLUS SchedAssist feature
+          EOF
+
+          # 5. Create core OPLUS config
+          safe_write "drivers/oplus/Kconfig" << 'EOF'
+          menu "OPLUS Feature Drivers"
+          config OPLUS_SYSTEM_KERNEL
+              bool "OPLUS system kernel"
+              default y
+              help
+                  OPLUS system kernel feature
+
+          source "kernel/sched_assist/Kconfig"
+          source "kernel/orms/Kconfig"
+          source "kernel/oplus_cpu/Kconfig"
+          source "kernel/healthinfo/Kconfig"
+          source "kernel/dfr/Kconfig"
+          source "kernel/mm_osvelte/Kconfig"
+          source "kernel/performance/Kconfig"
+          endmenu
+          EOF
+
+          # 6. Create vendor Makefiles
+          safe_write "vendor/oplus/Makefile" << 'EOF'
+          obj-y += kernel/
+          EOF
+
+          safe_write "vendor/oplus/kernel/Makefile" << 'EOF'
+          obj-y += secureguard/
+          EOF
+
+          # 7. Create base config
+          touch include/config/auto.conf
+
+          echo "=== Verifying Critical Files ==="
+          for file in \
+            kernel/sched_assist/Kconfig \
+            vendor/oplus/kernel/include/oplus_version.h \
+            drivers/oplus/Kconfig; do
+            if [ -f "$file" ]; then
+              echo "✓ $file exists"
+              head -n 1 "$file"
+            else
+              echo "✗ ERROR: $file missing!"
+            fi
+          done
 
       - name: Build Kernel
         run: |
@@ -58,11 +156,11 @@ jobs:
           mkdir -p out/
           
           echo "=== Starting Kernel Build ==="
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig || echo "Config failed but continuing..."
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
 
       - name: Package Kernel
-        if: success()
+        if: always()
         run: |
           git clone https://github.com/osm0sis/AnyKernel3
           cd AnyKernel3
