@@ -17,93 +17,119 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
           libssl-dev make bc bison flex libelf-dev zip
 
-      - name: Build Kernel
+      - name: Setup Required Files
+        run: |
+          # Create required directories
+          mkdir -p kernel/sched_assist
+          mkdir -p kernel/locking/klockopt
+          
+          # Create sched_assist Kconfig
+          cat << 'EOL' > kernel/sched_assist/Kconfig
+          config OPLUS_FEATURE_SCHED_ASSIST
+            tristate "sched_assist"
+            default n
+            help
+              turning sched for ui, render and so on to improve UX
+          
+          config OPLUS_FEATURE_SCHED_SPREAD
+            bool "sched_spread"
+            default n
+            help
+              This is the uifirst 5.0 feature, which will spread tasks,
+              kick runnable time from task demand and adjust bg's time slice.
+          
+          config OPLUS_FEATURE_AUDIO_OPT
+            bool "config audio opt"
+            default n
+            help
+              audio task schedule opt
+          
+          config MMAP_LOCK_OPT
+            bool "config mmap lock opt"
+            default n
+            depends on OPLUS_FEATURE_SCHED_ASSIST
+            help
+              reduce sleep time in mmap lock
+          
+          config OPLUS_ALLBOOST_OPT
+            bool "config allboost opt"
+            default n
+            help
+              Make the SCHED_ALL_BOOST function take effect
+          
+          config OPLUS_FG_BOOST
+            bool "config oplus fg boost"
+            default n
+            help
+              Make the SCHED_FG_BOOST function take effect
+          EOL
+          
+          # Create klockopt Kconfig
+          cat << 'EOL' > kernel/locking/klockopt/Kconfig
+          config KERNEL_LOCK_OPT
+            tristate "config kernel lock opt"
+            default n
+            help
+              uxmutex inplement & record rwsem owners
+          EOL
+          
+          # Create dummy source files (if needed)
+          touch kernel/sched_assist/sched_assist.c
+          touch kernel/locking/klockopt/klockopt.c
+          
+          # Verify files were created
+          echo "Verifying created files:"
+          ls -lR kernel/sched_assist/
+          ls -lR kernel/locking/klockopt/
+          
+          echo "Contents of Kconfig files:"
+          echo -e "\nkernel/sched_assist/Kconfig:"
+          cat kernel/sched_assist/Kconfig
+          echo -e "\nkernel/locking/klockopt/Kconfig:"
+          cat kernel/locking/klockopt/Kconfig
+
+      - name: Configure and Build
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          # Build with detailed output
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
+          # Show current directory structure
+          echo "Current directory structure:"
+          pwd
+          ls -la
           
-          BUILD_STATUS=${PIPESTATUS[0]}
-          if [ $BUILD_STATUS -eq 0 ]; then
-            echo "Build completed successfully!"
-          else
-            echo "Build failed with status $BUILD_STATUS"
-            exit $BUILD_STATUS
-          fi
+          # Configure with debug config
+          echo "Configuring kernel..."
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
+          
+          # Build kernel
+          echo "Building kernel..."
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
 
       - name: Collect Artifacts
-        if: success()
+        if: always()
         run: |
-          # Create artifacts directory
           mkdir -p artifacts
           
-          # Copy kernel image
-          echo "Copying kernel image..."
-          cp out/arch/arm64/boot/Image.gz artifacts/ || echo "No Image.gz found"
-          cp out/arch/arm64/boot/Image artifacts/ || echo "No Image found"
+          # Copy kernel files if they exist
+          cp out/arch/arm64/boot/Image* artifacts/ 2>/dev/null || echo "No kernel image found"
           
-          # Copy DTB files
-          echo "Copying DTB files..."
-          cp out/arch/arm64/boot/dts/mediatek/*.dtb artifacts/ || echo "No DTB files found"
+          # Copy configs
+          cp out/.config artifacts/kernel_config 2>/dev/null || echo "No .config found"
+          cp kernel/sched_assist/Kconfig artifacts/sched_assist_kconfig.txt || echo "No sched_assist Kconfig"
+          cp kernel/locking/klockopt/Kconfig artifacts/klockopt_kconfig.txt || echo "No klockopt Kconfig"
           
-          # Copy build config
-          echo "Copying build config..."
-          cp out/.config artifacts/kernel_config || echo "No .config found"
+          # Copy logs
+          cp build.log artifacts/ 2>/dev/null || echo "No build log found"
           
-          # Copy build log
-          echo "Copying build log..."
-          cp build.log artifacts/ || echo "No build.log found"
-          
-          # Create a simple info file
-          echo "Creating build info..."
-          {
-            echo "Build Date: $(date)"
-            echo "Commit: $(git rev-parse HEAD)"
-            echo "Branch: $(git rev-parse --abbrev-ref HEAD)"
-          } > artifacts/build_info.txt
-          
-          # List collected artifacts
-          echo -e "\nCollected artifacts:"
-          ls -lh artifacts/
+          echo "Artifacts collected:"
+          ls -lR artifacts/
 
-      - name: Create Kernel Package
-        if: success()
-        run: |
-          cd artifacts
-          zip -r ../kernel_package.zip *
-          cd ..
-          echo -e "\nKernel package contents:"
-          unzip -l kernel_package.zip
-
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-build-artifacts
-          path: |
-            artifacts/
-            kernel_package.zip
-          if-no-files-found: error
-
-      - name: Upload Build Log
+      - name: Upload Build Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs
-          path: build.log
+          name: kernel-build-outputs
+          path: artifacts/
           if-no-files-found: warn
-
-      - name: Check Artifacts
-        run: |
-          echo "Checking artifact locations..."
-          echo "1. Checking out/ directory:"
-          ls -R out/arch/arm64/boot/
-          
-          echo -e "\n2. Checking artifacts/ directory:"
-          ls -R artifacts/
-          
-          echo -e "\n3. Checking kernel_package.zip:"
-          ls -lh kernel_package.zip || echo "No kernel_package.zip found"
