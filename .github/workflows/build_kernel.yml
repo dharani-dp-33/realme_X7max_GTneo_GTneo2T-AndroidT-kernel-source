@@ -1,0 +1,15 @@
+# This names your workflow
+name: Build Kernel Module
+
+# This tells GitHub when to run the workflow
+on:
+  workflow_dispatch:    # This means you can run it manually
+
+# These are the actual tasks to perform
+jobs:
+  build:
+    runs-on: ubuntu-latest    # Use Ubuntu for building
+    steps:
+      # Step 1: Get the code
+      - name: Checkout Kernel
+        uses: actions/checkout@v4
