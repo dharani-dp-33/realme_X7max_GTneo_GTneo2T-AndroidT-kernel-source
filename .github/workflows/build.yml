@@ -52,7 +52,7 @@ jobs:
             git
 
       # ========================
-      # 4. Setup Toolchain (FIXED URL)
+      # 4. Setup Toolchain
       # ========================
       - name: Setup Toolchain
         run: |
@@ -61,12 +61,13 @@ jobs:
             toolchain
 
       # ========================
-      # 5. Defconfig Detection
+      # 5. Defconfig Detection & Patching
       # ========================
-      - name: Find Defconfig
+      - name: Find and Patch Defconfig
         id: defconfig
         run: |
           cd kernel
+          # Find defconfig
           DEFCONFIG=$(find arch/arm64/configs -type f \( -name "*x7max*defconfig" -o -name "*mt6893*defconfig" -o -name "*_defconfig" \) -print -quit)
           
           if [ -z "$DEFCONFIG" ]; then
@@ -74,6 +75,13 @@ jobs:
             exit 1
           fi
           echo "DEFCONFIG_PATH=${DEFCONFIG}" >> $GITHUB_ENV
+
+          # Patch defconfig to disable missing OPLUS modules
+          cp ${DEFCONFIG} .config
+          sed -i 's/CONFIG_OPLUS_ROOTGUARD=y/# CONFIG_OPLUS_ROOTGUARD is not set/' .config
+          sed -i 's/CONFIG_OPLUS_SCHED_ASSIST=y/# CONFIG_OPLUS_SCHED_ASSIST is not set/' .config
+          scripts/kconfig/conf --savedefconfig=defconfig_patched .config
+          mv defconfig_patched ${DEFCONFIG}
 
       # ========================
       # 6. Build Kernel
