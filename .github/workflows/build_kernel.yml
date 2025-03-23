@@ -22,7 +22,8 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export DEFCONFIG=mediatek_defconfig
+          # Change this line to use the correct defconfig
+          export DEFCONFIG=oppo6889_defconfig
           
           # Enable module loading
           echo "CONFIG_MODULES=y" >> arch/arm64/configs/${DEFCONFIG}
