@@ -11,125 +11,70 @@ jobs:
         with:
           fetch-depth: 0
           
-      - name: Setup Build Environment
+      - name: Analyze Repository Structure
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
-          libssl-dev make bc bison flex libelf-dev zip
-
-      - name: Setup Required Files
-        run: |
-          # Create required directories
-          mkdir -p kernel/sched_assist
-          mkdir -p kernel/locking/klockopt
-          
-          # Create sched_assist Kconfig
-          cat << 'EOL' > kernel/sched_assist/Kconfig
-          config OPLUS_FEATURE_SCHED_ASSIST
-            tristate "sched_assist"
-            default n
-            help
-              turning sched for ui, render and so on to improve UX
-          
-          config OPLUS_FEATURE_SCHED_SPREAD
-            bool "sched_spread"
-            default n
-            help
-              This is the uifirst 5.0 feature, which will spread tasks,
-              kick runnable time from task demand and adjust bg's time slice.
-          
-          config OPLUS_FEATURE_AUDIO_OPT
-            bool "config audio opt"
-            default n
-            help
-              audio task schedule opt
-          
-          config MMAP_LOCK_OPT
-            bool "config mmap lock opt"
-            default n
-            depends on OPLUS_FEATURE_SCHED_ASSIST
-            help
-              reduce sleep time in mmap lock
-          
-          config OPLUS_ALLBOOST_OPT
-            bool "config allboost opt"
-            default n
-            help
-              Make the SCHED_ALL_BOOST function take effect
-          
-          config OPLUS_FG_BOOST
-            bool "config oplus fg boost"
-            default n
-            help
-              Make the SCHED_FG_BOOST function take effect
-          EOL
-          
-          # Create klockopt Kconfig
-          cat << 'EOL' > kernel/locking/klockopt/Kconfig
-          config KERNEL_LOCK_OPT
-            tristate "config kernel lock opt"
-            default n
-            help
-              uxmutex inplement & record rwsem owners
-          EOL
-          
-          # Create dummy source files (if needed)
-          touch kernel/sched_assist/sched_assist.c
-          touch kernel/locking/klockopt/klockopt.c
-          
-          # Verify files were created
-          echo "Verifying created files:"
-          ls -lR kernel/sched_assist/
-          ls -lR kernel/locking/klockopt/
-          
-          echo "Contents of Kconfig files:"
-          echo -e "\nkernel/sched_assist/Kconfig:"
-          cat kernel/sched_assist/Kconfig
-          echo -e "\nkernel/locking/klockopt/Kconfig:"
-          cat kernel/locking/klockopt/Kconfig
-
-      - name: Configure and Build
-        run: |
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          
-          # Show current directory structure
-          echo "Current directory structure:"
+          echo "=== Repository Analysis ==="
+          echo "1. Current Directory:"
           pwd
+          
+          echo -e "\n2. Root Contents:"
           ls -la
           
-          # Configure with debug config
-          echo "Configuring kernel..."
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
+          echo -e "\n3. Looking for existing sched_assist:"
+          find . -name "sched_assist" -type d
           
-          # Build kernel
-          echo "Building kernel..."
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
+          echo -e "\n4. Looking for existing klockopt:"
+          find . -name "klockopt" -type d
+          
+          echo -e "\n5. Looking for all Kconfig files:"
+          find . -name "Kconfig"
+          
+          echo -e "\n6. Checking vendors directory:"
+          ls -la vendor/ 2>/dev/null || echo "No vendor directory"
+          
+          echo -e "\n7. Checking drivers directory:"
+          ls -la drivers/ 2>/dev/null || echo "No drivers directory"
+          
+          echo -e "\n8. Checking kernel directory:"
+          ls -la kernel/ 2>/dev/null || echo "No kernel directory"
+          
+          echo -e "\n9. Full path of any existing sched_assist:"
+          readlink -f $(find . -name "sched_assist" -type d) 2>/dev/null || echo "No sched_assist found"
+          
+          echo -e "\n10. Directory tree (limited depth):"
+          tree -L 3 2>/dev/null || echo "Tree command not found"
+          
+          echo -e "\n=== Analysis Complete ==="
 
-      - name: Collect Artifacts
-        if: always()
+      - name: Install Tree
+        run: sudo apt-get install -y tree
+
+      - name: Detailed Directory Analysis
         run: |
-          mkdir -p artifacts
+          echo "=== Detailed Analysis ==="
           
-          # Copy kernel files if they exist
-          cp out/arch/arm64/boot/Image* artifacts/ 2>/dev/null || echo "No kernel image found"
+          echo -e "\n1. Full directory tree of important paths:"
+          tree -L 4 kernel/ 2>/dev/null || echo "No kernel directory"
+          tree -L 4 drivers/ 2>/dev/null || echo "No drivers directory"
+          tree -L 4 vendor/ 2>/dev/null || echo "No vendor directory"
           
-          # Copy configs
-          cp out/.config artifacts/kernel_config 2>/dev/null || echo "No .config found"
-          cp kernel/sched_assist/Kconfig artifacts/sched_assist_kconfig.txt || echo "No sched_assist Kconfig"
-          cp kernel/locking/klockopt/Kconfig artifacts/klockopt_kconfig.txt || echo "No klockopt Kconfig"
+          echo -e "\n2. All symlinks in repository:"
+          find . -type l -ls
           
-          # Copy logs
-          cp build.log artifacts/ 2>/dev/null || echo "No build log found"
+          echo -e "\n3. All Kconfig files with contents:"
+          for f in $(find . -name "Kconfig"); do
+            echo -e "\nFile: $f"
+            echo "===================="
+            cat "$f" 2>/dev/null || echo "Cannot read file"
+          done
           
-          echo "Artifacts collected:"
-          ls -lR artifacts/
+          echo -e "\n=== Analysis Complete ==="
 
-      - name: Upload Build Results
-        if: always()
+      - name: Upload Analysis Results
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-build-outputs
-          path: artifacts/
+          name: repository-analysis
+          path: |
+            repository-analysis.txt
+            directory-analysis.txt
           if-no-files-found: warn
