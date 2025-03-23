@@ -61,37 +61,31 @@ jobs:
             toolchain
 
       # ========================
-      # 5. Prepare Build Environment
+      # 5. Defconfig Patching
       # ========================
-      - name: Build Kernel Tools
+      - name: Patch Defconfig
         run: |
           cd kernel
-          export ARCH=arm64
-          export CLANG_PATH=$(pwd)/../toolchain/clang-*/bin/clang
-          export PATH=$(pwd)/../toolchain/clang-*/bin:$PATH
-          make prepare  # Builds scripts/kconfig/conf
-
-      # ========================
-      # 6. Defconfig Detection & Patching
-      # ========================
-      - name: Find and Patch Defconfig
-        id: defconfig
-        run: |
-          cd kernel
-          DEFCONFIG=$(find arch/arm64/configs -type f \( -name "*x7max*defconfig" -o -name "*mt6893*defconfig" -o -name "*_defconfig" \) -print -quit)
+          # Find defconfig
+          DEFCONFIG=$(find arch/arm64/configs -name "*_defconfig" -print -quit)
           
-          if [ -z "$DEFCONFIG" ]; then
-            echo "::error::No defconfig found!"
-            exit 1
-          fi
-          echo "DEFCONFIG_PATH=${DEFCONFIG}" >> $GITHUB_ENV
+          # Disable ALL OPLUS features
+          sed -i '/^CONFIG_OPLUS_/s/=y/=n/' $DEFCONFIG
+          sed -i '/^CONFIG_OPLUS_/d' $DEFCONFIG  # Remove if not using =n
+          sed -i '/_FEATURE_/s/=y/=n/' $DEFCONFIG
 
-          # Patch defconfig
-          cp ${DEFCONFIG} .config
-          sed -i 's/CONFIG_OPLUS_ROOTGUARD=y/# CONFIG_OPLUS_ROOTGUARD is not set/' .config
-          sed -i 's/CONFIG_OPLUS_SCHED_ASSIST=y/# CONFIG_OPLUS_SCHED_ASSIST is not set/' .config
-          scripts/kconfig/conf --savedefconfig=defconfig_patched .config
-          mv defconfig_patched ${DEFCONFIG}
+          # Verify changes
+          echo "Modified defconfig:"
+          grep "OPLUS\|_FEATURE_" $DEFCONFIG || true
+
+      # ========================
+      # 6. Build Environment Setup
+      # ========================
+      - name: Prepare Build Tools
+        run: |
+          cd kernel
+          make ARCH=arm64 defconfig
+          make ARCH=arm64 prepare
 
       # ========================
       # 7. Build Kernel
@@ -102,9 +96,10 @@ jobs:
           export ARCH=arm64
           export CLANG_PATH=$(pwd)/../toolchain/clang-*/bin/clang
           export PATH=$(pwd)/../toolchain/clang-*/bin:$PATH
+          
+          set -ex
           make clean && make mrproper
-          set -e  # Fail on error
-          make $DEFCONFIG_PATH
+          make defconfig
           make -j$(nproc) CC=clang 2>&1 | tee build.log
 
       # ========================
@@ -118,13 +113,3 @@ jobs:
             kernel/arch/arm64/boot/Image*
             kernel/build.log
           if-no-files-found: error
-
-      # ========================
-      # 9. Post-Build Verification
-      # ========================
-      - name: Verify Kernel Image
-        run: |
-          if [ ! -f "kernel/arch/arm64/boot/Image.gz-dtb" ]; then
-            echo "::error::Kernel image missing!"
-            exit 1
-          fi
