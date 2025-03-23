@@ -6,33 +6,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1. Fetch all code
+      # 1. Checkout KERNEL SOURCE (not MemKernel)
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           repository: dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
           ref: master
+          path: kernel  # Changed to "kernel" directory
 
-      - name: Checkout MemKernel
-        uses: actions/checkout@v4
-        with:
-          repository: dharani-dp-33/MemKernel
-          path: MemKernel
-
-      # 2. Setup environment
+      # 2. Skip MemKernel checkout (unless it's a toolchain)
+      # 3. Install dependencies
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev
 
-      # 3. Auto-detect defconfig (priority: device name -> chipset -> first found)
+      # 4. Auto-detect defconfig in KERNEL SOURCE (not MemKernel)
       - name: Find Defconfig
         id: find-defconfig
         run: |
-          cd MemKernel
-          DEFCONFIG=$(find arch/arm64/configs/ -name "*x7max*defconfig" || 
-                     find arch/arm64/configs/ -name "*mt6893*defconfig" || 
-                     find arch/arm64/configs/ -name "*_defconfig" | head -n1)
+          cd kernel  # Changed to kernel source directory
+          DEFCONFIG=$(find . -type f -name "*x7max*defconfig" -o -name "*mt6893*defconfig" -o -name "*_defconfig" | head -n1)
           
           if [ -z "$DEFCONFIG" ]; then
             echo "::error::DEFCONFIG NOT FOUND! Check your kernel source."
@@ -41,31 +35,25 @@ jobs:
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
           echo "Using: $DEFCONFIG"
 
-      # 4. Modern toolchain (adjust URL if needed)
+      # 5. Use modern toolchain
       - name: Setup Toolchain
         run: |
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_host_linux-x86_clang-r487747 toolchain
 
-      # 5. Simplified build process
+      # 6. Build in KERNEL directory
       - name: Build Kernel
         run: |
-          cd MemKernel
+          cd kernel
           export ARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
           export CLANG_PATH=$(pwd)/../toolchain/bin/clang
           
-          # Clean build
           make clean && make mrproper
-          
-          # Build
           make $DEFCONFIG
           make -j$(nproc) CC=clang
 
-      # 6. Smart artifact upload
+      # 7. Upload artifacts
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build
-          path: |
-            MemKernel/arch/arm64/boot/Image*
-            MemKernel/out/arch/arm64/boot/Image*
+          path: kernel/arch/arm64/boot/Image*
