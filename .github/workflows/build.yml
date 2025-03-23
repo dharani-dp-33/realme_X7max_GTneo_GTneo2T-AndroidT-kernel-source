@@ -1,17 +1,17 @@
-# ... rest of workflow ...
+name: Realme X7 Max Kernel Builder
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
 
-      - name: Setup Toolchain
-        run: |
-          # Use AOSP Clang (official Google toolchain)
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 toolchain
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          repository: dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
+          ref: master
 
-      - name: Build Kernel
-        run: |
-          cd kernel
-          export ARCH=arm64
-          export CLANG_PATH=$(pwd)/../toolchain/clang-r498229/bin/clang  # Adjust path to match
-          export PATH=$(pwd)/../toolchain/clang-r498229/bin:$PATH       # Add toolchain to PATH
-
-          make clean && make mrproper
-          make $DEFCONFIG
-          make -j$(nproc) CC=clang
+      # Add other steps here (install dependencies, build, upload artifacts)
