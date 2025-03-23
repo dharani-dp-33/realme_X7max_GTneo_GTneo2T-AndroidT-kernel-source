@@ -1,4 +1,5 @@
-name: Realme X7 Max Kernel Builder
+# File path: .github/workflows/kernel-build.yml
+name: X7Max Kernel Builder
 on:
   workflow_dispatch:
 
@@ -18,17 +19,15 @@ jobs:
         repository: dharani-dp-33/MemKernel
         path: MemKernel
 
-    - name: Setup Tools
+    - name: Apply Critical Fixes
       run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc-aarch64-linux-gnu build-essential
-
-    - name: Fix Kernel Config
-      run: |
-        # Remove problematic Kconfig line
-        sed -i '740d' init/Kconfig
+        # Fix klockopt reference
+        sed -i '/klockopt/d' init/Kconfig
         
-        # Allow unsigned modules
+        # Fix sched_assist reference
+        sed -i '/sched_assist/d' init/Kconfig
+        
+        # Enable module force load
         echo 'CONFIG_MODULE_FORCE_LOAD=y' >> arch/arm64/configs/k6891v1_64_k419_defconfig
         sed -i 's/CONFIG_MODULE_SIG=y//' arch/arm64/configs/k6891v1_64_k419_defconfig
 
@@ -43,15 +42,15 @@ jobs:
         cd MemKernel
         KERNEL_SRC=../ make
 
-    - name: Package Results
+    - name: Package Artifacts
       run: |
-        mkdir Artifacts
-        cp arch/arm64/boot/Image.gz-dtb Artifacts/
-        cp MemKernel/*.ko Artifacts/
-        zip -r Kernel-Package.zip Artifacts
+        mkdir artifacts
+        cp arch/arm64/boot/Image.gz-dtb artifacts/
+        cp MemKernel/*.ko artifacts/
+        zip -r kernel-package.zip artifacts
 
-    - name: Upload Artifacts
+    - name: Upload Results
       uses: actions/upload-artifact@v4
       with:
-        name: Kernel-Modules-Package
-        path: Kernel-Package.zip
+        name: x7max-kernel-package
+        path: kernel-package.zip
