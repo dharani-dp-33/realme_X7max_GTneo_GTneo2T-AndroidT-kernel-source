@@ -19,12 +19,13 @@ jobs:
 
       - name: Setup Kconfig Files
         run: |
-          # Create directories
-          sudo mkdir -p kernel/sched_assist
-          sudo mkdir -p kernel/locking/klockopt
+          # Debug: Show current structure
+          echo "Current directory structure:"
+          ls -la kernel/sched_assist/
+          ls -la kernel/locking/klockopt/
           
-          # Create sched_assist Kconfig
-          cat > kernel/sched_assist/Kconfig << 'EOL'
+          # Replace Kconfig files directly
+          sudo tee kernel/sched_assist/Kconfig > /dev/null << 'EOL'
           config OPLUS_FEATURE_SCHED_ASSIST
             tristate "sched_assist"
             default n
@@ -64,8 +65,7 @@ jobs:
               Make the SCHED_FG_BOOST function take effect
           EOL
           
-          # Create klockopt Kconfig
-          cat > kernel/locking/klockopt/Kconfig << 'EOL'
+          sudo tee kernel/locking/klockopt/Kconfig > /dev/null << 'EOL'
           config KERNEL_LOCK_OPT
             tristate "config kernel lock opt"
             default n
@@ -76,10 +76,11 @@ jobs:
           # Set permissions
           sudo chown -R $USER:$USER kernel/
           
-          # Debug: Show created files
-          echo -e "\nCreated Kconfig files:"
-          ls -la kernel/sched_assist/
-          ls -la kernel/locking/klockopt/
+          # Debug: Show file contents
+          echo -e "\nVerifying Kconfig contents:"
+          cat kernel/sched_assist/Kconfig
+          echo -e "\nkernel/locking/klockopt/Kconfig contents:"
+          cat kernel/locking/klockopt/Kconfig
 
       - name: Configure Build
         run: |
@@ -116,15 +117,22 @@ jobs:
             exit $BUILD_STATUS
           fi
 
+      - name: Package Build Results
+        if: always()
+        run: |
+          mkdir -p artifacts
+          cp -v out/.config artifacts/ 2>/dev/null || true
+          cp -v out/arch/arm64/boot/Image* artifacts/ 2>/dev/null || true
+          cp -v build.log artifacts/ 2>/dev/null || true
+          
+          # Copy Kconfig files for reference
+          cp -v kernel/sched_assist/Kconfig artifacts/sched_assist_kconfig.txt || true
+          cp -v kernel/locking/klockopt/Kconfig artifacts/klockopt_kconfig.txt || true
+
       - name: Upload Build Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build-outputs
-          path: |
-            out/.config
-            build.log
-            out/arch/arm64/boot/Image*
-            kernel/sched_assist/Kconfig
-            kernel/locking/klockopt/Kconfig
+          path: artifacts/
           if-no-files-found: warn
