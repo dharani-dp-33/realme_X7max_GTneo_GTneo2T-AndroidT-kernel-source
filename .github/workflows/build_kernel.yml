@@ -17,56 +17,56 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
           libssl-dev make bc bison flex libelf-dev zip
       
-      - name: Setup Configuration Files
+      - name: Prepare Kernel Build
         run: |
-          # Create missing directories and files
-          mkdir -p kernel/sched_assist
-          mkdir -p kernel/locking/klockopt
+          # Debug: List current files
+          echo "Current directory contents:"
+          ls -la
           
-          # Create sched_assist Kconfig
-          cat > kernel/sched_assist/Kconfig << 'EOL'
-          config OPLUS_FEATURE_SCHED_ASSIST
-            bool "Enable sched assist enhanced scheduling features"
-            depends on CGROUP_SCHED
-            help
-              Enable scheduler assist enhanced scheduling features,
-              including UI thread optimization and other enhancements.
+          # Debug: Show kernel directory structure
+          echo -e "\nKernel directory contents:"
+          ls -la kernel/
           
-          config OPLUS_FEATURE_SCHED_ASSIST_CPUFREQ
-            bool "Scheduler assist CPUFreq enhancement"
-            depends on OPLUS_FEATURE_SCHED_ASSIST
-            help
-              Enable scheduler assist CPUFreq enhancement features.
-          EOL
+          # Debug: Show .config and Kconfig files
+          echo -e "\nConfig files in root:"
+          find . -maxdepth 1 -name "*config*"
           
-          # Create klockopt Kconfig
-          cat > kernel/locking/klockopt/Kconfig << 'EOL'
-          config KLOCKOPT
-            bool "Enable kernel lock optimization"
-            depends on LOCK_DEBUGGING_SUPPORT
-            help
-              Enable kernel lock optimization features.
-              This helps improve locking performance.
-          EOL
-          
-          # Verify files
-          echo "=== sched_assist/Kconfig ==="
-          cat kernel/sched_assist/Kconfig
-          echo -e "\n=== klockopt/Kconfig ==="
-          cat kernel/locking/klockopt/Kconfig
-
-      - name: Configure Kernel
-        run: |
+          # Set build environment
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
           # List available configs
-          echo "Available defconfigs:"
+          echo -e "\nAvailable defconfigs:"
           ls -la arch/arm64/configs/
           
-          # Use the debug config
+          # Debug: Show complete config list
+          echo -e "\nAll config files in repo:"
+          find . -name "*config*"
+
+      - name: Configure Build
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          # Create minimal config first
+          cat > .config << 'EOL'
+          # Minimal config
+          CONFIG_ARM64=y
+          CONFIG_CROSS_COMPILE="aarch64-linux-gnu-"
+          # Basic scheduling
+          CONFIG_SCHED_WALT=y
+          CONFIG_FAIR_GROUP_SCHED=y
+          CONFIG_SCHED_DEBUG=y
+          EOL
+          
+          # Make defconfig
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
+          
+          # Debug: Show final config
+          echo -e "\nFinal .config contents:"
+          head -n 50 out/.config
 
       - name: Build Kernel
         run: |
@@ -77,57 +77,23 @@ jobs:
           # Build with verbose output
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) V=1 2>&1 | tee build.log
           
-          # Check if build succeeded
+          # Check build status
           if [ "${PIPESTATUS[0]}" -eq 0 ]; then
             echo "Build completed successfully!"
           else
-            echo "Build failed! Check build.log for details."
+            echo "Build failed! Last 50 lines of build log:"
             tail -n 50 build.log
             exit 1
           fi
 
-      - name: Package Artifacts
-        if: success()
-        run: |
-          mkdir -p release
-          if [ -f "out/arch/arm64/boot/Image.gz" ]; then
-            cp out/arch/arm64/boot/Image.gz release/
-          fi
-          if [ -f "out/arch/arm64/boot/Image" ]; then
-            cp out/arch/arm64/boot/Image release/
-          fi
-          
-          # Copy kernel modules if any
-          find out/ -name "*.ko" -exec cp {} release/ \;
-          
-          # Create zip if we have files
-          if [ "$(ls -A release/)" ]; then
-            cd release && zip -r ../kernel-artifacts.zip *
-          fi
-
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload Artifacts
         if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: kernel-build-files
           path: |
-            release/
-            kernel-artifacts.zip
+            out/
             build.log
-            out/arch/arm64/boot/
-            kernel/sched_assist/Kconfig
-            kernel/locking/klockopt/Kconfig
-          if-no-files-found: warn
-
-      - name: Upload Debug Info
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-info
-          path: |
+            .config
             out/.config
-            build.log
-            init/Kconfig
-            kernel/sched_assist/Kconfig
-            kernel/locking/klockopt/Kconfig
           if-no-files-found: warn
