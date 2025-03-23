@@ -19,12 +19,15 @@ jobs:
 
       - name: Setup Required Directories
         run: |
-          # Create vendor directory structure
-          sudo mkdir -p vendor/oplus/kernel/oplus_performance/sched_assist
-          sudo mkdir -p vendor/oplus/kernel/oplus_performance/locking/klockopt
+          # Create temp directory with proper permissions
+          mkdir -p /tmp/kernel_build
+          cd /tmp/kernel_build
+          
+          # Create directory structure with proper permissions
+          mkdir -p {sched_assist,klockopt}
           
           # Create sched_assist Kconfig
-          cat > vendor/oplus/kernel/oplus_performance/sched_assist/Kconfig << 'EOL'
+          cat > sched_assist/Kconfig << 'EOL'
           config OPLUS_FEATURE_SCHED_ASSIST
             bool "Sched assist optimize"
             depends on CGROUP_SCHED
@@ -47,7 +50,7 @@ jobs:
           EOL
 
           # Create klockopt Kconfig
-          cat > vendor/oplus/kernel/oplus_performance/locking/klockopt/Kconfig << 'EOL'
+          cat > klockopt/Kconfig << 'EOL'
           config OPLUS_FEATURE_KLOCKOPT
             bool "Kernel lock optimization"
             depends on CGROUP_SCHED
@@ -56,11 +59,20 @@ jobs:
               This includes various lock optimizations and enhancements
               for better system performance.
           EOL
-
+          
+          # Copy files to workspace with proper permissions
+          cd $GITHUB_WORKSPACE
+          sudo mkdir -p kernel/sched_assist kernel/locking/klockopt
+          sudo cp /tmp/kernel_build/sched_assist/Kconfig kernel/sched_assist/
+          sudo cp /tmp/kernel_build/klockopt/Kconfig kernel/locking/klockopt/
+          
+          # Set permissions
+          sudo chown -R $(id -u):$(id -g) kernel/
+          
           # Debug output
           echo "Created directories and Kconfig files:"
-          ls -la vendor/oplus/kernel/oplus_performance/sched_assist/
-          ls -la vendor/oplus/kernel/oplus_performance/locking/klockopt/
+          ls -la kernel/sched_assist/
+          ls -la kernel/locking/klockopt/
 
       - name: Configure Build
         run: |
@@ -110,8 +122,8 @@ jobs:
           cp -v build.log artifacts/ 2>/dev/null || true
           
           # Copy Kconfig files for reference
-          cp -v vendor/oplus/kernel/oplus_performance/sched_assist/Kconfig artifacts/sched_assist_kconfig.txt || true
-          cp -v vendor/oplus/kernel/oplus_performance/locking/klockopt/Kconfig artifacts/klockopt_kconfig.txt || true
+          cp -v kernel/sched_assist/Kconfig artifacts/sched_assist_kconfig.txt || true
+          cp -v kernel/locking/klockopt/Kconfig artifacts/klockopt_kconfig.txt || true
           
           # Directory listing
           ls -laR out/ > artifacts/directory_listing.txt 2>&1 || true
@@ -133,6 +145,6 @@ jobs:
             .config
             out/.config
             build.log
-            vendor/oplus/kernel/oplus_performance/sched_assist/Kconfig
-            vendor/oplus/kernel/oplus_performance/locking/klockopt/Kconfig
+            kernel/sched_assist/Kconfig
+            kernel/locking/klockopt/Kconfig
           if-no-files-found: warn
