@@ -18,54 +18,34 @@ jobs:
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
-      - name: Check and Setup Files
+      - name: Handle Symlink Target
         run: |
-          # First, let's see what we actually have
-          echo "=== Checking Directory Structure ==="
-          ls -la arch/arm64/kernel/ || echo "kernel directory not found"
+          # Create the target directory structure following the symlink
+          mkdir -p vendor/oplus/kernel/secureguard/rootguard
           
-          # Now carefully handle rootguard
-          if [ ! -f "arch/arm64/kernel/rootguard/Makefile" ]; then
-            mkdir -p arch/arm64/kernel/rootguard
-            echo 'obj-y := rootguard.o' > arch/arm64/kernel/rootguard/Makefile
-            echo '#include <linux/module.h>
-            MODULE_LICENSE("GPL");' > arch/arm64/kernel/rootguard/rootguard.c
-          fi
-
-      - name: Create OPLUS Config
-        run: |
-          cat << 'EOL' > OplusKernelEnvConfig.mk
-          # OPLUS Features Configuration
-          OPLUS_FEATURE_HEALTHINFO=yes
-          OPLUS_FEATURE_SCHED_ASSIST=yes
-          OPLUS_FEATURE_TASK_CPUSTATS=yes
-          OPLUS_FEATURE_HANS_FREEZE=yes
-          OPLUS_FEATURE_STORAGE_TOOL=yes
-          OPLUS_FEATURE_MMC_DRIVER=yes
-          OPLUS_FEATURE_UFS_DRIVER=yes
-          OPLUS_FEATURE_UFS_SHOW_LATENCY=yes
-          OPLUS_FEATURE_AOD=yes
-          OPLUS_FEATURE_DC=yes
-          OPLUS_FEATURE_ENABLE_MODEM_DB=yes
-          OPLUS_FEATURE_ENGINEERTOOLS=yes
-          OPLUS_FEATURE_THEIA=yes
-          OPLUS_FEATURE_APP_MONITOR=yes
-          OPLUS_FEATURE_MULTI_KSWAPD=yes
-          OPLUS_FEATURE_PHOENIX=yes
-          OPLUS_FEATURE_SENSOR=yes
-          OPLUS_FEATURE_IOMONITOR=yes
-          OPLUS_FEATURE_MEMLEAK_DETECT=yes
-          OPLUS_FEATURE_WIFI_MTUDETECT=yes
-          OPLUS_FEATURE_WIFI_SLA=yes
-          OPLUS_FEATURE_CHG_BASIC=yes
-
-          # Export features
-          $(foreach myfeature,$(shell grep OPLUS_FEATURE_ $(CURDIR)/OplusKernelEnvConfig.mk | grep -v "#" | cut -d'=' -f1), \
-          $(eval $(myfeature)_MACRO := -D$(myfeature)) \
-          $(eval KBUILD_CFLAGS += $($(myfeature)_MACRO)))
+          # Create files in the target directory that the symlink points to
+          echo 'obj-y := rootguard.o' > vendor/oplus/kernel/secureguard/rootguard/Makefile
           
-          export KBUILD_CFLAGS
-          EOL
+          # Create a minimal rootguard.c
+          cat > vendor/oplus/kernel/secureguard/rootguard/rootguard.c << 'EOF'
+          #include <linux/init.h>
+          #include <linux/module.h>
+          #include <linux/kernel.h>
+
+          static int __init rootguard_init(void)
+          {
+              return 0;
+          }
+
+          static void __exit rootguard_exit(void)
+          {
+          }
+
+          module_init(rootguard_init);
+          module_exit(rootguard_exit);
+          MODULE_LICENSE("GPL");
+          MODULE_DESCRIPTION("OPLUS Rootguard Module");
+          EOF
 
       - name: Build Kernel
         run: |
@@ -73,14 +53,12 @@ jobs:
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          # Remove out directory if it exists and create new
+          # Clean build directory
           rm -rf out/
           mkdir -p out/
           
-          echo "=== Starting Kernel Build ==="
+          # Build
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
-          
-          echo "=== Building Kernel ==="
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
 
       - name: Package Kernel
@@ -88,8 +66,6 @@ jobs:
         run: |
           git clone https://github.com/osm0sis/AnyKernel3
           cd AnyKernel3
-          
-          # Update device names
           sed -i 's/do.devicecheck=1/do.devicecheck=1/g' anykernel.sh
           sed -i 's/device.name1=/device.name1=RMX3031/g' anykernel.sh
           sed -i 's/device.name2=/device.name2=RMX3033/g' anykernel.sh
@@ -112,6 +88,5 @@ jobs:
             out/arch/arm64/boot/Image*
             build.log
             X7Max-Kernel.zip
-            OplusKernelEnvConfig.mk
             out/.config
           if-no-files-found: warn
