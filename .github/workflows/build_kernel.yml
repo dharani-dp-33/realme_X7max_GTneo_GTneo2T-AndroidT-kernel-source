@@ -17,52 +17,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential libssl-dev make bc bison flex libelf-dev zip
 
-      - name: Check and Setup Directory Structure
+      - name: Verify Repository Structure
         run: |
-          echo "Current directory structure:"
-          ls -la
-          echo "Creating necessary directories..."
-          sudo mkdir -p kernel/sched_assist
-          sudo chmod 777 kernel/sched_assist
-          echo "# Scheduler Assist Configuration" | sudo tee kernel/sched_assist/Kconfig
-          echo "config SCHED_ASSIST" | sudo tee -a kernel/sched_assist/Kconfig
-          echo "  bool \"Scheduler Assist\"" | sudo tee -a kernel/sched_assist/Kconfig
-          echo "  default n" | sudo tee -a kernel/sched_assist/Kconfig
-          echo "Directory created and Kconfig added"
-          ls -la kernel/sched_assist/
-
-      - name: Build Kernel
-        run: |
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
+          echo "Checking repository structure..."
+          echo "1. Checking arch/arm64/configs:"
+          ls -la arch/arm64/configs/ || echo "configs directory not found"
           
-          echo "Available defconfigs:"
-          ls -la arch/arm64/configs/
+          echo "2. Checking kernel/sched_assist:"
+          ls -la kernel/sched_assist/ || echo "sched_assist directory not found"
           
-          # Use specific defconfig for Realme X7 Max
-          export DEFCONFIG=$(ls arch/arm64/configs/ | grep -i "oppo\|mediatek" | head -n 1)
-          echo "Using defconfig: ${DEFCONFIG}"
+          echo "3. Looking for any defconfig files:"
+          find . -name "*defconfig" -type f
           
-          # Enable module loading
-          echo "CONFIG_MODULES=y" | sudo tee -a arch/arm64/configs/${DEFCONFIG}
-          echo "CONFIG_MODULE_UNLOAD=y" | sudo tee -a arch/arm64/configs/${DEFCONFIG}
-          echo "CONFIG_MODULE_FORCE_UNLOAD=y" | sudo tee -a arch/arm64/configs/${DEFCONFIG}
-          echo "CONFIG_MODULE_FORCE_LOAD=y" | sudo tee -a arch/arm64/configs/${DEFCONFIG}
-          echo "CONFIG_MODVERSIONS=y" | sudo tee -a arch/arm64/configs/${DEFCONFIG}
-          
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE $DEFCONFIG
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc)
-
-      - name: Package Kernel Module
-        run: |
-          mkdir -p release
-          cp out/arch/arm64/boot/Image.gz release/ || true
-          find out -name "*.ko" -exec cp {} release/ \; || true
-          cd release && zip -r ../kernel-module.zip *
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-module
-          path: kernel-module.zip
+          echo "4. Checking main Kconfig:"
+          cat init/Kconfig | grep -A 5 "sched_assist" || echo "No sched_assist in main Kconfig"
