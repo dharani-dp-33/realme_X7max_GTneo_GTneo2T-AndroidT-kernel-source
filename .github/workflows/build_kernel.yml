@@ -18,17 +18,40 @@ jobs:
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
-      - name: Setup OPLUS Config
+      - name: Verify and Setup Directories
         run: |
-          # Create OplusKernelEnvConfig.mk
-          cat << 'EOL' > OplusKernelEnvConfig.mk
-          # OPLUS_FEATURE_HEALTHINFO
+          # Function to create directory and files if they don't exist
+          setup_dir() {
+            local dir=$1
+            if [ ! -d "$dir" ]; then
+              echo "Creating directory: $dir"
+              mkdir -p "$dir"
+            else
+              echo "Directory already exists: $dir"
+            fi
+          }
+          
+          # List of directories to check/create
+          DIRS=(
+            "kernel/sched_assist"
+            "kernel/locking/klockopt"
+            "arch/arm64/kernel/rootguard"
+            "drivers/oplus/system"
+          )
+          
+          # Verify/create each directory
+          for dir in "${DIRS[@]}"; do
+            setup_dir "$dir"
+          done
+          
+          # Create or update OplusKernelEnvConfig.mk
+          if [ ! -f "OplusKernelEnvConfig.mk" ]; then
+            echo "Creating OplusKernelEnvConfig.mk"
+            cat << 'EOL' > OplusKernelEnvConfig.mk
+          # OPLUS Features Configuration
           OPLUS_FEATURE_HEALTHINFO=yes
-          # OPLUS_FEATURE_SCHED_ASSIST
           OPLUS_FEATURE_SCHED_ASSIST=yes
-          # OPLUS_FEATURE_TASK_CPUSTATS
           OPLUS_FEATURE_TASK_CPUSTATS=yes
-          # Add other OPLUS features seen in output
           OPLUS_FEATURE_HANS_FREEZE=yes
           OPLUS_FEATURE_STORAGE_TOOL=yes
           OPLUS_FEATURE_MMC_DRIVER=yes
@@ -36,24 +59,34 @@ jobs:
           OPLUS_FEATURE_UFS_SHOW_LATENCY=yes
           OPLUS_FEATURE_AOD=yes
           OPLUS_FEATURE_DC=yes
-          # ...add all other features from the error output...
-          
-          # Export all features
+          OPLUS_FEATURE_ENABLE_MODEM_DB=yes
+          OPLUS_FEATURE_ENGINEERTOOLS=yes
+          OPLUS_FEATURE_THEIA=yes
+          OPLUS_FEATURE_APP_MONITOR=yes
+          OPLUS_FEATURE_MULTI_KSWAPD=yes
+          OPLUS_FEATURE_PHOENIX=yes
+          OPLUS_FEATURE_SENSOR=yes
+          OPLUS_FEATURE_IOMONITOR=yes
+          OPLUS_FEATURE_MEMLEAK_DETECT=yes
+          OPLUS_FEATURE_WIFI_MTUDETECT=yes
+          OPLUS_FEATURE_WIFI_SLA=yes
+          OPLUS_FEATURE_CHG_BASIC=yes
+
+          # Export features
           $(foreach myfeature,$(shell grep OPLUS_FEATURE_ $(CURDIR)/OplusKernelEnvConfig.mk | grep -v "#" | cut -d'=' -f1), \
           $(eval $(myfeature)_MACRO := -D$(myfeature)) \
           $(eval KBUILD_CFLAGS += $($(myfeature)_MACRO)))
           
           export KBUILD_CFLAGS
           EOL
+          else
+            echo "OplusKernelEnvConfig.mk already exists"
+          fi
           
-          # Create directories
-          mkdir -p kernel/sched_assist
-          mkdir -p kernel/locking/klockopt
-          mkdir -p arch/arm64/kernel/rootguard
-          mkdir -p drivers/oplus/system
-          
-          # Create sched_assist Kconfig
-          cat << 'EOL' > kernel/sched_assist/Kconfig
+          # Create or verify Kconfig files
+          if [ ! -f "kernel/sched_assist/Kconfig" ]; then
+            echo "Creating sched_assist Kconfig"
+            cat << 'EOL' > kernel/sched_assist/Kconfig
           config OPLUS_FEATURE_SCHED_ASSIST
             tristate "sched_assist"
             default y
@@ -74,56 +107,20 @@ jobs:
               Config for healthinfo
           endif
           EOL
+          else
+            echo "sched_assist Kconfig already exists"
+          fi
           
-          # Create Makefile for sched_assist
-          cat << 'EOL' > kernel/sched_assist/Makefile
-          obj-$(CONFIG_OPLUS_FEATURE_SCHED_ASSIST) += sched_assist_common.o
-          EOL
+          # Verify and list all critical files
+          echo "=== Directory Structure ==="
+          ls -R kernel/sched_assist/ || echo "sched_assist not found"
+          ls -R kernel/locking/klockopt/ || echo "klockopt not found"
+          ls -R arch/arm64/kernel/rootguard/ || echo "rootguard not found"
+          ls -R drivers/oplus/system/ || echo "oplus system not found"
           
-          # Create basic source file
-          cat << 'EOL' > kernel/sched_assist/sched_assist_common.c
-          #include <linux/module.h>
-          #include <linux/init.h>
-          
-          int sched_assist_init(void) {
-              return 0;
-          }
-          
-          void sched_assist_exit(void) {
-          }
-          
-          module_init(sched_assist_init);
-          module_exit(sched_assist_exit);
-          MODULE_LICENSE("GPL");
-          EOL
-          
-          # Create rootguard Makefile
-          cat << 'EOL' > arch/arm64/kernel/rootguard/Makefile
-          obj-y :=
-          EOL
-          
-          # Create OPLUS system directory
-          cat << 'EOL' > drivers/oplus/system/Makefile
-          obj-y     += platform.o
-          EOL
-          
-          # Create platform.c
-          cat << 'EOL' > drivers/oplus/system/platform.c
-          #include <linux/module.h>
-          
-          static int __init oplus_platform_init(void)
-          {
-              return 0;
-          }
-          
-          static void __exit oplus_platform_exit(void)
-          {
-          }
-          
-          module_init(oplus_platform_init);
-          module_exit(oplus_platform_exit);
-          MODULE_LICENSE("GPL");
-          EOL
+          echo "=== Critical Files ==="
+          [ -f "OplusKernelEnvConfig.mk" ] && echo "✓ OplusKernelEnvConfig.mk exists" || echo "✗ OplusKernelEnvConfig.mk missing"
+          [ -f "kernel/sched_assist/Kconfig" ] && echo "✓ sched_assist Kconfig exists" || echo "✗ sched_assist Kconfig missing"
 
       - name: Build Kernel
         run: |
@@ -132,19 +129,26 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           
           # Include OplusKernelEnvConfig.mk
-          cp OplusKernelEnvConfig.mk Makefile.oplus
-          echo "include Makefile.oplus" >> Makefile
+          if [ -f "OplusKernelEnvConfig.mk" ]; then
+            cp OplusKernelEnvConfig.mk Makefile.oplus
+            echo "include Makefile.oplus" >> Makefile
+          else
+            echo "ERROR: OplusKernelEnvConfig.mk not found!"
+            exit 1
+          fi
           
           # Clean build
           make mrproper
           
-          # Configure kernel with OPLUS features
+          # Configure kernel
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
           
-          # Enable all OPLUS features in .config
-          for feature in $(grep OPLUS_FEATURE_ OplusKernelEnvConfig.mk | grep -v "#" | cut -d'=' -f1); do
-            echo "CONFIG_${feature}=y" >> out/.config
-          done
+          # Enable OPLUS features in config
+          if [ -f "OplusKernelEnvConfig.mk" ]; then
+            for feature in $(grep OPLUS_FEATURE_ OplusKernelEnvConfig.mk | grep -v "#" | cut -d'=' -f1); do
+              echo "CONFIG_${feature}=y" >> out/.config
+            done
+          fi
           
           # Update config
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
@@ -162,4 +166,16 @@ jobs:
             build.log
             OplusKernelEnvConfig.mk
             out/.config
+          if-no-files-found: warn
+
+      - name: Upload Directory Structure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: directory-structure
+          path: |
+            kernel/sched_assist/
+            kernel/locking/klockopt/
+            arch/arm64/kernel/rootguard/
+            drivers/oplus/system/
           if-no-files-found: warn
