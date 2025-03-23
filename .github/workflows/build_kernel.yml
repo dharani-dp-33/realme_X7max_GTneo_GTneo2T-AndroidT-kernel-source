@@ -17,63 +17,41 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
           libssl-dev make bc bison flex libelf-dev zip
 
-      - name: Setup Required Files
+      - name: Setup Vendor Files
         run: |
-          # Create temp directory with proper permissions
-          mkdir -p /tmp/kernel_build
-          cd /tmp/kernel_build
+          # Debug: Show current symlinks
+          echo "Current symlink targets:"
+          readlink kernel/sched_assist || echo "Not a symlink"
+          readlink kernel/locking/klockopt || echo "Not a symlink"
           
-          # Create Kconfig files
-          mkdir -p sched_assist klockopt
+          # Create vendor directory structure
+          sudo mkdir -p vendor/oplus/kernel/oplus_performance/sched_assist
+          sudo mkdir -p vendor/oplus/kernel/oplus_performance/locking/klockopt
           
-          # Create sched_assist Kconfig
-          cat > sched_assist/Kconfig << 'EOL'
+          # Create Kconfig files in vendor directory
+          sudo tee vendor/oplus/kernel/oplus_performance/sched_assist/Kconfig > /dev/null << 'EOL'
           config OPLUS_FEATURE_SCHED_ASSIST
             bool "Sched assist optimize"
-            depends on CGROUP_SCHED
+            default n
             help
-              This is Oplus's kernel scheduler modification to optimize
-              scheduling behavior. This includes UI thread optimization
-              and other scheduling enhancements.
-
-          config OPLUS_FEATURE_SCHED_ASSIST_CPUFREQ
-            bool "Sched assist cpufreq"
-            depends on OPLUS_FEATURE_SCHED_ASSIST
-            help
-              Support CPUFreq enhancement for UI thread performance.
-
-          config OPLUS_SCHED_MT6893
-            bool "Sched assist for MTK6893"
-            depends on OPLUS_FEATURE_SCHED_ASSIST
-            help
-              Support MTK6893 specific scheduler optimizations.
+              Scheduler assist features
           EOL
-
-          # Create klockopt Kconfig
-          cat > klockopt/Kconfig << 'EOL'
+          
+          sudo tee vendor/oplus/kernel/oplus_performance/locking/klockopt/Kconfig > /dev/null << 'EOL'
           config OPLUS_FEATURE_KLOCKOPT
             bool "Kernel lock optimization"
-            depends on CGROUP_SCHED
+            default n
             help
-              This enables Oplus kernel lock optimization feature.
-              This includes various lock optimizations and enhancements
-              for better system performance.
+              Kernel lock optimization features
           EOL
           
-          cd $GITHUB_WORKSPACE
+          # Set permissions
+          sudo chown -R $USER:$USER vendor
           
-          # Remove existing symlinks if they exist
-          rm -f kernel/sched_assist/Kconfig kernel/locking/klockopt/Kconfig
-          
-          # Copy files to correct locations
-          mkdir -p kernel/sched_assist/ kernel/locking/klockopt/
-          cp /tmp/kernel_build/sched_assist/Kconfig kernel/sched_assist/
-          cp /tmp/kernel_build/klockopt/Kconfig kernel/locking/klockopt/
-          
-          # Debug: Show file status
-          echo "Kconfig files status:"
-          ls -la kernel/sched_assist/Kconfig
-          ls -la kernel/locking/klockopt/Kconfig
+          # Debug: Show created files
+          echo -e "\nCreated Kconfig files:"
+          ls -la vendor/oplus/kernel/oplus_performance/sched_assist/
+          ls -la vendor/oplus/kernel/oplus_performance/locking/klockopt/
 
       - name: Configure Build
         run: |
@@ -81,16 +59,24 @@ jobs:
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          # Check configurations
-          echo "Available configurations:"
+          # Debug: Show available configs
+          echo "Available ARM64 configs:"
           ls -la arch/arm64/configs/
           
-          # Create build
-          echo "Creating build configuration..."
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
+          # Create minimal defconfig first
+          cat > arch/arm64/configs/minimal_defconfig << 'EOL'
+          CONFIG_ARM64=y
+          CONFIG_CROSS_COMPILE="aarch64-linux-gnu-"
+          # Disable problematic features
+          # CONFIG_OPLUS_FEATURE_SCHED_ASSIST is not set
+          # CONFIG_OPLUS_FEATURE_KLOCKOPT is not set
+          EOL
           
-          # Show config summary
-          echo "Configuration summary:"
+          # Try minimal config first
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE minimal_defconfig
+          
+          # Show config
+          echo -e "\nConfiguration summary:"
           head -n 50 out/.config
 
       - name: Build Kernel
@@ -109,44 +95,18 @@ jobs:
             echo "Build failed with status $BUILD_STATUS"
             echo "Last 50 lines of build log:"
             tail -n 50 build.log
+            # Show any Kconfig related errors
+            grep -i "kconfig" build.log
             exit $BUILD_STATUS
           fi
 
-      - name: Package Build Results
-        if: always()
-        run: |
-          mkdir -p artifacts
-          
-          # Copy build outputs
-          cp -v out/.config artifacts/ 2>/dev/null || true
-          cp -v out/arch/arm64/boot/Image* artifacts/ 2>/dev/null || true
-          cp -v build.log artifacts/ 2>/dev/null || true
-          
-          # Copy Kconfig files for reference
-          cp -v kernel/sched_assist/Kconfig artifacts/sched_assist_kconfig.txt || true
-          cp -v kernel/locking/klockopt/Kconfig artifacts/klockopt_kconfig.txt || true
-          
-          # Directory listing
-          ls -laR out/ > artifacts/directory_listing.txt 2>&1 || true
-
-      - name: Upload Build Artifacts
+      - name: Upload Build Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build-outputs
-          path: artifacts/
-          if-no-files-found: warn
-
-      - name: Upload Debug Info
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-debug-info
           path: |
-            .config
             out/.config
             build.log
-            kernel/sched_assist/Kconfig
-            kernel/locking/klockopt/Kconfig
-            init/Kconfig
+            arch/arm64/configs/minimal_defconfig
           if-no-files-found: warn
