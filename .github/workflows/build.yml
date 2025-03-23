@@ -1,4 +1,4 @@
-name: "Realme X7 Max Kernel Builder"
+name: Realme X7 Max Kernel Builder
 on:
   workflow_dispatch:
   push:
@@ -8,6 +8,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # ========================
+      # 1. Validate Workflow Syntax
+      # ========================
       - name: Validate Workflow Syntax
         uses: actions/github-script@v6
         with:
@@ -18,11 +21,14 @@ jobs:
                 repo: context.repo.repo,
                 workflow_id: '.github/workflows/build.yml'
               });
-              core.info('✅ Workflow syntax validation passed');
+              core.info('✅ Workflow syntax validated');
             } catch (error) {
-              core.setFailed(`❌ Workflow syntax error: ${error.message}`);
+              core.setFailed(`❌ Workflow syntax error: ${error}`);
             }
 
+      # ========================
+      # 2. Checkout Kernel Source
+      # ========================
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
@@ -30,6 +36,9 @@ jobs:
           ref: master
           path: kernel
 
+      # ========================
+      # 3. Install Dependencies
+      # ========================
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
@@ -39,6 +48,70 @@ jobs:
             bison \
             flex \
             libssl-dev \
-            findutils
+            findutils \
+            git
 
-      # ... rest of your workflow steps ...
+      # ========================
+      # 4. Setup Toolchain
+      # ========================
+      - name: Setup Toolchain
+        run: |
+          git clone --depth=1 \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+            toolchain
+
+      # ========================
+      # 5. Defconfig Detection
+      # ========================
+      - name: Find Defconfig
+        id: defconfig
+        run: |
+          cd kernel
+          DEFCONFIG=$(find arch/arm64/configs -type f \( -name "*x7max*defconfig" -o -name "*mt6893*defconfig" -o -name "*_defconfig" \) -print -quit)
+          
+          if [ -z "$DEFCONFIG" ]; then
+            echo "::error::No defconfig found! Check kernel source structure."
+            exit 1
+          fi
+          echo "DEFCONFIG_PATH=${DEFCONFIG}" >> $GITHUB_ENV
+          echo "DEFCONFIG_DIR=$(dirname ${DEFCONFIG})" >> $GITHUB_ENV
+
+      # ========================
+      # 6. Build Kernel
+      # ========================
+      - name: Build Kernel
+        run: |
+          cd kernel
+          export ARCH=arm64
+          export CLANG_PATH=$(pwd)/../toolchain/clang-*/bin/clang
+          export PATH=$(pwd)/../toolchain/clang-*/bin:$PATH
+
+          # Clean environment
+          make clean && make mrproper
+
+          # Build with error handling
+          set -e
+          make $DEFCONFIG_PATH
+          make -j$(nproc) CC=clang 2>&1 | tee build.log
+
+      # ========================
+      # 7. Upload Artifacts
+      # ========================
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-build
+          path: |
+            kernel/arch/arm64/boot/Image*
+            kernel/build.log
+          if-no-files-found: error
+
+      # ========================
+      # 8. Post-Build Verification
+      # ========================
+      - name: Verify Kernel Image
+        run: |
+          if [ ! -f "kernel/arch/arm64/boot/Image.gz-dtb" ]; then
+            echo "::error::Kernel image not generated!"
+            exit 1
+          fi
