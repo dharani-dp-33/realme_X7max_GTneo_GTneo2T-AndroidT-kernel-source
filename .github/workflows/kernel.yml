@@ -18,24 +18,52 @@ jobs:
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
-      - name: Setup Required Paths
+      - name: Setup Required Files
         run: |
-          # First check what exists
-          echo "=== Current Directory Structure ==="
-          ls -R
-
-          # Create only the essential parent directories
-          mkdir -p vendor/oplus/kernel/include
-          mkdir -p vendor/oplus/kernel/secureguard/rootguard
+          # Create essential directories
+          mkdir -p \
+            vendor/oplus/kernel/include \
+            vendor/oplus/kernel/secureguard/rootguard \
+            kernel/sched_assist
 
           # Update version header
           cat > vendor/oplus/kernel/include/oplus_version.h << 'EOF'
           #ifndef _OPLUS_VERSION_H_
           #define _OPLUS_VERSION_H_
           #define OPLUS_BUILD_DATE "2025-03-23"
-          #define OPLUS_BUILD_TIME "17:38:36"
+          #define OPLUS_BUILD_TIME "17:48:50"
           #define OPLUS_BUILD_USER "dharani-dp-33"
           #endif
+          EOF
+
+          # Create sched_assist Kconfig
+          cat > kernel/sched_assist/Kconfig << 'EOF'
+          config OPLUS_FEATURE_SCHED_ASSIST
+              bool "Sched Assist"
+              default y
+              help
+                  Enable/Disable SchedAssist feature
+          EOF
+
+          # Create sched_assist Makefile
+          cat > kernel/sched_assist/Makefile << 'EOF'
+          obj-$(CONFIG_OPLUS_FEATURE_SCHED_ASSIST) += sched_assist.o
+          EOF
+
+          # Create basic sched_assist.c
+          cat > kernel/sched_assist/sched_assist.c << 'EOF'
+          #include <linux/init.h>
+          #include <linux/module.h>
+          #include <linux/kernel.h>
+          #include "../../vendor/oplus/kernel/include/oplus_version.h"
+
+          static int __init sched_assist_init(void) { return 0; }
+          static void __exit sched_assist_exit(void) { }
+
+          module_init(sched_assist_init);
+          module_exit(sched_assist_exit);
+          MODULE_LICENSE("GPL");
+          MODULE_DESCRIPTION("OPLUS SchedAssist Feature");
           EOF
 
           # Update rootguard files
@@ -62,9 +90,10 @@ jobs:
           echo 'obj-y += kernel/' > vendor/oplus/Makefile
           echo 'obj-y += secureguard/' > vendor/oplus/kernel/Makefile
 
-          # Show final structure
-          echo "=== Final Directory Structure ==="
-          ls -R vendor/oplus
+          # Show final structure for verification
+          echo "=== Directory Structure ==="
+          ls -R kernel/sched_assist/
+          ls -R vendor/oplus/
 
       - name: Build Kernel
         run: |
