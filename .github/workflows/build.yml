@@ -6,21 +6,28 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout Kernel Source
-      uses: actions/checkout@v4
-      with:
-        repository: dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
-        ref: master  # or "main" if your fork uses main branch
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          repository: dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
+          ref: master  # or "main" if your fork uses main branch
 
-    - name: Checkout MemKernel
-      uses: actions/checkout@v4
-      with:
-        repository: dharani-dp-33/MemKernel
-        path: MemKernel
+      - name: Checkout MemKernel
+        uses: actions/checkout@v4
+        with:
+          repository: dharani-dp-33/MemKernel
+          path: MemKernel
 
-    # Rest of the workflow remains same as previous- 
-    name: Upload Artifact  
-  uses: actions/upload-artifact@v3  
-  with:  
-    name: kernel-build  # Name of the artifact  
-    path: path/to/your/kernel/files/  # Replace with actual folder (e.g., "output/", "bin/")
+      # Add your build steps here (e.g., make commands)
+      # Example:
+      - name: Build Kernel
+        run: |
+          cd MemKernel
+          make your_build_command_here  # Replace with actual build command
+
+      # Upload artifact AFTER building
+      - name: Upload Artifact  
+        uses: actions/upload-artifact@v3  
+        with:  
+          name: kernel-build  
+          path: MemKernel/out/  # Replace with ACTUAL output folder (e.g., "out/", "bin/", "output/")
