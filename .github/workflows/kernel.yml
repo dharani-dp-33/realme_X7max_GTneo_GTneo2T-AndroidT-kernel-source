@@ -1,190 +1,108 @@
-name: Build Kernel
+name: Kernel Tests
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          
-      - name: Setup Build Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
-          libssl-dev make bc bison flex libelf-dev zip \
-          libncurses-dev gzip python-is-python3
 
-      - name: Final Setup Attempt
-        run: |
-          # Function to safely create directory
-          safe_mkdir() {
-            if [ ! -d "$1" ]; then
-              mkdir -p "$1" || echo "WARNING: Could not create $1"
-            else
-              echo "Directory $1 exists, skipping..."
-            fi
-          }
-
-          # Function to safely write file
-          safe_write() {
-            local dir=$(dirname "$1")
-            safe_mkdir "$dir"
-            if [ ! -f "$1" ] || [ -w "$1" ]; then
-              cat > "$1" || echo "WARNING: Could not write to $1"
-            else
-              echo "WARNING: Cannot write to $1"
-            fi
-          }
-
-          echo "=== Starting Setup with Current Time ==="
-          echo "Current time: 2025-03-23 18:17:46"
-          echo "Current user: dharani-dp-33"
-
-          # 1. Safely create all directories
-          for dir in \
-            vendor/oplus/kernel/include \
-            vendor/oplus/kernel/secureguard/rootguard \
-            kernel/sched_assist \
-            kernel/orms \
-            kernel/oplus_cpu \
-            kernel/healthinfo \
-            kernel/dfr \
-            kernel/mm_osvelte \
-            kernel/performance \
-            drivers/soc/oplus \
-            drivers/input/oplus \
-            drivers/misc/oplus \
-            drivers/power/oplus \
-            drivers/staging/android/oplus \
-            drivers/oplus \
-            include/config; do
-            safe_mkdir "$dir"
-          done
-
-          # 2. Create version header with EXACT current time
-          safe_write "vendor/oplus/kernel/include/oplus_version.h" << EOF
-          #ifndef _OPLUS_VERSION_H_
-          #define _OPLUS_VERSION_H_
-          #define OPLUS_BUILD_DATE "2025-03-23"
-          #define OPLUS_BUILD_TIME "18:17:46"
-          #define OPLUS_BUILD_USER "dharani-dp-33"
-          #endif
-          EOF
-
-          # 3. Create Kconfig files with error checking
-          for dir in kernel/*/; do
-            if [ -d "$dir" ]; then
-              feature=$(basename "$dir" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-              safe_write "${dir}Kconfig" << EOF
-          config OPLUS_FEATURE_${feature}
-              tristate "OPLUS ${feature} support"
-              default y
-              help
-                  OPLUS ${feature} kernel feature
-          EOF
-              safe_write "${dir}Makefile" << EOF
-          obj-\$(CONFIG_OPLUS_FEATURE_${feature}) += ${feature,,}.o
-          EOF
-            fi
-          done
-
-          # 4. Special handling for sched_assist
-          safe_write "kernel/sched_assist/Kconfig" << 'EOF'
-          config OPLUS_FEATURE_SCHED_ASSIST
-              def_bool y
-              help
-                  OPLUS SchedAssist feature
-          EOF
-
-          # 5. Create core OPLUS config
-          safe_write "drivers/oplus/Kconfig" << 'EOF'
-          menu "OPLUS Feature Drivers"
-          config OPLUS_SYSTEM_KERNEL
-              bool "OPLUS system kernel"
-              default y
-              help
-                  OPLUS system kernel feature
-
-          source "kernel/sched_assist/Kconfig"
-          source "kernel/orms/Kconfig"
-          source "kernel/oplus_cpu/Kconfig"
-          source "kernel/healthinfo/Kconfig"
-          source "kernel/dfr/Kconfig"
-          source "kernel/mm_osvelte/Kconfig"
-          source "kernel/performance/Kconfig"
-          endmenu
-          EOF
-
-          # 6. Create vendor Makefiles
-          safe_write "vendor/oplus/Makefile" << 'EOF'
-          obj-y += kernel/
-          EOF
-
-          safe_write "vendor/oplus/kernel/Makefile" << 'EOF'
-          obj-y += secureguard/
-          EOF
-
-          # 7. Create base config
-          touch include/config/auto.conf
-
-          echo "=== Verifying Critical Files ==="
-          for file in \
-            kernel/sched_assist/Kconfig \
-            vendor/oplus/kernel/include/oplus_version.h \
-            drivers/oplus/Kconfig; do
-            if [ -f "$file" ]; then
-              echo "✓ $file exists"
-              head -n 1 "$file"
-            else
-              echo "✗ ERROR: $file missing!"
-            fi
-          done
-
-      - name: Build Kernel
-        run: |
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export KBUILD_BUILD_USER="dharani-dp-33"
-          export KBUILD_BUILD_HOST="github-actions"
-          
-          rm -rf out/
-          mkdir -p out/
-          
-          echo "=== Starting Kernel Build ==="
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig || echo "Config failed but continuing..."
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
-
-      - name: Package Kernel
-        if: always()
-        run: |
-          git clone https://github.com/osm0sis/AnyKernel3
-          cd AnyKernel3
-          sed -i 's/do.devicecheck=1/do.devicecheck=1/g' anykernel.sh
-          sed -i 's/device.name1=/device.name1=RMX3031/g' anykernel.sh
-          sed -i 's/device.name2=/device.name2=RMX3033/g' anykernel.sh
-          sed -i 's/device.name3=/device.name3=GTNeo/g' anykernel.sh
-          sed -i 's/device.name4=/device.name4=GTNeo2T/g' anykernel.sh
-          sed -i 's/device.name5=/device.name5=X7Max/g' anykernel.sh
-          
-          if [ -f "../out/arch/arm64/boot/Image.gz-dtb" ]; then
-            cp ../out/arch/arm64/boot/Image.gz-dtb .
-            zip -r9 ../X7Max-Kernel.zip * -x .git README.md *placeholder
-          fi
-          cd ..
-
-      - name: Upload Build Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Download Previous Build
+        uses: actions/download-artifact@v4
         with:
           name: kernel-build-files
+          path: kernel-files
+
+      - name: Setup Test Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            qemu-system-aarch64 \
+            libguestfs-tools \
+            sparse \
+            cppcheck \
+            kmod
+
+      - name: Update Build Info
+        run: |
+          echo "=== Build Information ==="
+          echo "Date: 2025-03-23"
+          echo "Time: 18:25:03"
+          echo "User: dharani-dp-33"
+
+      - name: Static Analysis
+        run: |
+          echo "=== Running Static Analysis ==="
+          
+          # Check kernel config
+          if [ -f "kernel-files/out/.config" ]; then
+            echo "Analyzing kernel config..."
+            grep -i "CONFIG_DEBUG" kernel-files/out/.config || echo "No debug configs found"
+            grep -i "CONFIG_SECURITY" kernel-files/out/.config || echo "No security configs found"
+          fi
+          
+          # Check Image size
+          if [ -f "kernel-files/out/arch/arm64/boot/Image.gz-dtb" ]; then
+            echo "Kernel image size:"
+            ls -lh kernel-files/out/arch/arm64/boot/Image.gz-dtb
+          fi
+
+      - name: Basic Module Tests
+        run: |
+          echo "=== Testing Kernel Modules ==="
+          
+          if [ -d "kernel-files/out/drivers" ]; then
+            find kernel-files/out/drivers -name "*.ko" -exec file {} \;
+          fi
+
+      - name: Security Checks
+        run: |
+          echo "=== Running Security Checks ==="
+          
+          # Check for common security configurations
+          if [ -f "kernel-files/out/.config" ]; then
+            echo "Checking security configs..."
+            for config in \
+              CONFIG_SECURITY \
+              CONFIG_SECCOMP \
+              CONFIG_SECURITY_SELINUX \
+              CONFIG_SECURITY_APPARMOR \
+              CONFIG_DEFAULT_SECURITY; do
+              grep -w $config kernel-files/out/.config || echo "$config not found"
+            done
+          fi
+
+      - name: Generate Test Report
+        run: |
+          cat << EOF > test-report.txt
+          Kernel Test Report
+          =================
+          Date: 2025-03-23
+          Time: 18:25:03
+          User: dharani-dp-33
+
+          1. Build Verification
+          --------------------
+          - Image Size: $(ls -lh kernel-files/out/arch/arm64/boot/Image.gz-dtb 2>/dev/null || echo "Not found")
+          - Config Present: $([ -f kernel-files/out/.config ] && echo "Yes" || echo "No")
+          
+          2. Security Checks
+          ----------------
+          $(grep -i "CONFIG_SECURITY" kernel-files/out/.config 2>/dev/null || echo "No security configs found")
+          
+          3. Module Information
+          -------------------
+          $(find kernel-files/out/drivers -name "*.ko" 2>/dev/null | wc -l) modules found
+          EOF
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-test-results
           path: |
-            out/arch/arm64/boot/Image*
-            build.log
-            X7Max-Kernel.zip
-            out/.config
+            test-report.txt
           if-no-files-found: warn
