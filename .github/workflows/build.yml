@@ -61,22 +61,32 @@ jobs:
             toolchain
 
       # ========================
-      # 5. Defconfig Detection & Patching
+      # 5. Prepare Build Environment
+      # ========================
+      - name: Build Kernel Tools
+        run: |
+          cd kernel
+          export ARCH=arm64
+          export CLANG_PATH=$(pwd)/../toolchain/clang-*/bin/clang
+          export PATH=$(pwd)/../toolchain/clang-*/bin:$PATH
+          make prepare  # Builds scripts/kconfig/conf
+
+      # ========================
+      # 6. Defconfig Detection & Patching
       # ========================
       - name: Find and Patch Defconfig
         id: defconfig
         run: |
           cd kernel
-          # Find defconfig
           DEFCONFIG=$(find arch/arm64/configs -type f \( -name "*x7max*defconfig" -o -name "*mt6893*defconfig" -o -name "*_defconfig" \) -print -quit)
           
           if [ -z "$DEFCONFIG" ]; then
-            echo "::error::No defconfig found! Check kernel source structure."
+            echo "::error::No defconfig found!"
             exit 1
           fi
           echo "DEFCONFIG_PATH=${DEFCONFIG}" >> $GITHUB_ENV
 
-          # Patch defconfig to disable missing OPLUS modules
+          # Patch defconfig
           cp ${DEFCONFIG} .config
           sed -i 's/CONFIG_OPLUS_ROOTGUARD=y/# CONFIG_OPLUS_ROOTGUARD is not set/' .config
           sed -i 's/CONFIG_OPLUS_SCHED_ASSIST=y/# CONFIG_OPLUS_SCHED_ASSIST is not set/' .config
@@ -84,7 +94,7 @@ jobs:
           mv defconfig_patched ${DEFCONFIG}
 
       # ========================
-      # 6. Build Kernel
+      # 7. Build Kernel
       # ========================
       - name: Build Kernel
         run: |
@@ -92,15 +102,13 @@ jobs:
           export ARCH=arm64
           export CLANG_PATH=$(pwd)/../toolchain/clang-*/bin/clang
           export PATH=$(pwd)/../toolchain/clang-*/bin:$PATH
-
-          # Clean and build
           make clean && make mrproper
           set -e  # Fail on error
           make $DEFCONFIG_PATH
           make -j$(nproc) CC=clang 2>&1 | tee build.log
 
       # ========================
-      # 7. Upload Artifacts
+      # 8. Upload Artifacts
       # ========================
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -112,11 +120,11 @@ jobs:
           if-no-files-found: error
 
       # ========================
-      # 8. Post-Build Verification
+      # 9. Post-Build Verification
       # ========================
       - name: Verify Kernel Image
         run: |
           if [ ! -f "kernel/arch/arm64/boot/Image.gz-dtb" ]; then
-            echo "::error::Kernel image not generated!"
+            echo "::error::Kernel image missing!"
             exit 1
           fi
