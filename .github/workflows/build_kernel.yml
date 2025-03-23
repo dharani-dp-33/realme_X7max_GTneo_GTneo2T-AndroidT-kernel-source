@@ -17,12 +17,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential libssl-dev make bc bison flex libelf-dev zip
 
+      - name: Create Missing Directory and Files
+        run: |
+          mkdir -p kernel/sched_assist
+          touch kernel/sched_assist/Kconfig
+          echo "# Scheduler Assist Configuration" > kernel/sched_assist/Kconfig
+          echo "config SCHED_ASSIST" >> kernel/sched_assist/Kconfig
+          echo "  bool \"Scheduler Assist\"" >> kernel/sched_assist/Kconfig
+          echo "  default n" >> kernel/sched_assist/Kconfig
+
+      - name: List Available Configs
+        run: |
+          echo "Available defconfigs:"
+          ls arch/arm64/configs/
+          
       - name: Build Kernel
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          # Change this line to use the correct defconfig
           export DEFCONFIG=oppo6889_defconfig
           
           # Enable module loading
