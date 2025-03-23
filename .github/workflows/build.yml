@@ -9,37 +9,13 @@ jobs:
     - name: Checkout Kernel Source
       uses: actions/checkout@v4
       with:
-        repository: <YOUR_GITHUB_USERNAME>/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
-        ref: master
+        repository: dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
+        ref: master  # or "main" if your fork uses main branch
 
-    - name: Nuclear Kconfig Cleanup
-      run: |
-        # Remove all problematic references
-        find . -type f -name "Kconfig" -exec sed -i \
-        -e '/sched_assist/d' \
-        -e '/klockopt/d' \
-        -e '/rootguard/d' \
-        -e '/uxio_first/d' {} \;
-
-        # Create minimal defconfig
-        echo "CONFIG_MODULES=y" > arch/arm64/configs/minimal_defconfig
-        echo "CONFIG_MODULE_FORCE_LOAD=y" >> arch/arm64/configs/minimal_defconfig
-        echo "# CONFIG_MODULE_SIG is not set" >> arch/arm64/configs/minimal_defconfig
-
-    - name: Build Kernel
-      run: |
-        export ARCH=arm64
-        make O=out ARCH=arm64 minimal_defconfig
-        make -j$(nproc) O=out
-        
-        # Verify critical output
-        if [ ! -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
-          echo "❌ Build failed - check logs"
-          exit 1
-        fi
-
-    - name: Upload Kernel Image
-      uses: actions/upload-artifact@v4
+    - name: Checkout MemKernel
+      uses: actions/checkout@v4
       with:
-        name: x7max-kernel
-        path: out/arch/arm64/boot/Image.gz-dtb
+        repository: dharani-dp-33/MemKernel
+        path: MemKernel
+
+    # Rest of the workflow remains same as previous
