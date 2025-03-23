@@ -1,4 +1,4 @@
-name: Build Kernel Image
+name: Build Kernel with Size Check
 on:
   workflow_dispatch:
 
@@ -41,7 +41,7 @@ jobs:
           }
 
           echo "=== Starting Setup with Current Time ==="
-          echo "Current time: 2025-03-23 18:57:26"
+          echo "Current time: 2025-03-23 19:20:33"
           echo "Current user: dharani-dp-33"
 
           # 1. Safely create all directories
@@ -70,7 +70,7 @@ jobs:
           #ifndef _OPLUS_VERSION_H_
           #define _OPLUS_VERSION_H_
           #define OPLUS_BUILD_DATE "2025-03-23"
-          #define OPLUS_BUILD_TIME "18:57:26"
+          #define OPLUS_BUILD_TIME "19:20:33"
           #define OPLUS_BUILD_USER "dharani-dp-33"
           #endif
           EOF
@@ -144,7 +144,7 @@ jobs:
             fi
           done
 
-      - name: Build Kernel
+      - name: Build Kernel with Debug
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
@@ -155,16 +155,68 @@ jobs:
           rm -rf out/
           mkdir -p out/
           
-          echo "=== Starting Kernel Build ==="
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig || echo "Config failed but continuing..."
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
+          echo "=== Starting Kernel Build with Verbose Output ==="
+          
+          # First, make sure defconfig succeeds
+          echo "Creating defconfig..."
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
+          
+          # Check if .config was created
+          if [ ! -f "out/.config" ]; then
+            echo "ERROR: .config file not created!"
+            exit 1
+          fi
+          
+          # Show some important config options
+          echo "Checking kernel config..."
+          cat out/.config | grep -i "CONFIG_ARM64"
+          cat out/.config | grep -i "CONFIG_DEBUG"
+          
+          # Build with verbose output
+          echo "Starting main build..."
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) V=1 2>&1 | tee build.log
+          
+          # Check build results
+          echo "=== Build Complete - Checking Results ==="
+          
+          # List all generated images
+          echo "Searching for kernel images..."
+          find out/arch/arm64/boot/ -type f -name "Image*" -ls
+          
+          # Check Image.gz-dtb size
+          if [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
+            echo "Image.gz-dtb size:"
+            ls -lh out/arch/arm64/boot/Image.gz-dtb
+            
+            # Verify minimum size (20MB)
+            size=$(stat -f%z "out/arch/arm64/boot/Image.gz-dtb" 2>/dev/null || stat -c%s "out/arch/arm64/boot/Image.gz-dtb")
+            if [ "$size" -lt 20000000 ]; then
+              echo "ERROR: Kernel image too small ($size bytes)!"
+              exit 1
+            fi
+          else
+            echo "ERROR: Image.gz-dtb not found!"
+            # List what files we do have
+            echo "Files in out/arch/arm64/boot:"
+            ls -la out/arch/arm64/boot/
+            exit 1
+          fi
 
-      - name: Upload Kernel Image
+      - name: Upload Build Artifacts with Size Check
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-image
+          name: kernel-build-files
           path: |
             out/arch/arm64/boot/Image*
             build.log
             out/.config
           if-no-files-found: error
+
+      - name: Verify Upload
+        if: success()
+        run: |
+          echo "=== Final Verification ==="
+          echo "Checking uploaded files..."
+          ls -lh out/arch/arm64/boot/Image*
+          echo "Build completed at: $(date)"
