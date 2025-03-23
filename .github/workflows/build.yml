@@ -1,5 +1,4 @@
-# File path: .github/workflows/kernel-build.yml
-name: X7Max Kernel Builder
+name: Realme X7 Max Stock Kernel Builder
 on:
   workflow_dispatch:
 
@@ -13,44 +12,41 @@ jobs:
         repository: dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
         ref: master
 
-    - name: Checkout MemKernel
-      uses: actions/checkout@v4
-      with:
-        repository: dharani-dp-33/MemKernel
-        path: MemKernel
-
-    - name: Apply Critical Fixes
+    - name: Clean Configuration
       run: |
-        # Fix klockopt reference
+        # Remove ALL problematic Kconfig references
+        sed -i '/rootguard/d' arch/arm64/Kconfig
+        sed -i '/sched_assist/d' init/Kconfig
         sed -i '/klockopt/d' init/Kconfig
         
-        # Fix sched_assist reference
-        sed -i '/sched_assist/d' init/Kconfig
+        # Force disable missing components
+        echo '# CONFIG_ROOTGUARD is not set' >> arch/arm64/configs/k6891v1_64_k419_defconfig
+        echo '# CONFIG_SCHED_ASSIST is not set' >> arch/arm64/configs/k6891v1_64_k419_defconfig
+        echo '# CONFIG_KLOCKOPT is not set' >> arch/arm64/configs/k6891v1_64_k419_defconfig
         
-        # Enable module force load
-        echo 'CONFIG_MODULE_FORCE_LOAD=y' >> arch/arm64/configs/k6891v1_64_k419_defconfig
+        # Enable essential module features
         sed -i 's/CONFIG_MODULE_SIG=y//' arch/arm64/configs/k6891v1_64_k419_defconfig
+        echo 'CONFIG_MODULES=y' >> arch/arm64/configs/k6891v1_64_k419_defconfig
+        echo 'CONFIG_MODULE_FORCE_LOAD=y' >> arch/arm64/configs/k6891v1_64_k419_defconfig
 
     - name: Build Kernel
       run: |
         export ARCH=arm64
-        make k6891v1_64_k419_defconfig
-        make -j$(nproc)
-
-    - name: Build Memory Module
+        make O=out k6891v1_64_k419_defconfig
+        make -j$(nproc) O=out
+        
+    - name: Verify Build
       run: |
-        cd MemKernel
-        KERNEL_SRC=../ make
+        if [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
+          echo "Build successful!"
+          ls -lh out/arch/arm64/boot/Image.gz-dtb
+        else
+          echo "Build failed - check logs"
+          exit 1
+        fi
 
-    - name: Package Artifacts
-      run: |
-        mkdir artifacts
-        cp arch/arm64/boot/Image.gz-dtb artifacts/
-        cp MemKernel/*.ko artifacts/
-        zip -r kernel-package.zip artifacts
-
-    - name: Upload Results
+    - name: Upload Kernel Image
       uses: actions/upload-artifact@v4
       with:
-        name: x7max-kernel-package
-        path: kernel-package.zip
+        name: x7max-stock-kernel
+        path: out/arch/arm64/boot/Image.gz-dtb
