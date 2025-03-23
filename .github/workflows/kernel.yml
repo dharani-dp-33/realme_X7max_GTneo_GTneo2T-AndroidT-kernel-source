@@ -1,4 +1,4 @@
-name: Kernel Build and Package
+name: Build Kernel Image
 on:
   workflow_dispatch:
 
@@ -41,7 +41,7 @@ jobs:
           }
 
           echo "=== Starting Setup with Current Time ==="
-          echo "Current time: 2025-03-23 18:49:24"
+          echo "Current time: 2025-03-23 18:57:26"
           echo "Current user: dharani-dp-33"
 
           # 1. Safely create all directories
@@ -70,7 +70,7 @@ jobs:
           #ifndef _OPLUS_VERSION_H_
           #define _OPLUS_VERSION_H_
           #define OPLUS_BUILD_DATE "2025-03-23"
-          #define OPLUS_BUILD_TIME "18:49:24"
+          #define OPLUS_BUILD_TIME "18:57:26"
           #define OPLUS_BUILD_USER "dharani-dp-33"
           #endif
           EOF
@@ -159,59 +159,12 @@ jobs:
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig || echo "Config failed but continuing..."
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
 
-      - name: Create Flash Package
-        if: success()
-        run: |
-          echo "=== Creating Flash Package ==="
-          mkdir -p flash_package
-          cd flash_package
-          
-          # Copy kernel image
-          cp ../out/arch/arm64/boot/Image.gz-dtb ./
-          
-          # Create AnyKernel3 zip
-          git clone https://github.com/osm0sis/AnyKernel3
-          cd AnyKernel3
-          sed -i 's/do.devicecheck=1/do.devicecheck=1/g' anykernel.sh
-          sed -i 's/device.name1=/device.name1=RMX3031/g' anykernel.sh
-          sed -i 's/device.name2=/device.name2=RMX3033/g' anykernel.sh
-          sed -i 's/device.name3=/device.name3=GTNeo/g' anykernel.sh
-          sed -i 's/device.name4=/device.name4=GTNeo2T/g' anykernel.sh
-          sed -i 's/device.name5=/device.name5=X7Max/g' anykernel.sh
-          cp ../Image.gz-dtb ./
-          zip -r9 ../X7Max-Kernel.zip * -x .git README.md *placeholder
-          cd ..
-
-          # Create instructions
-          cat > FLASH_INSTRUCTIONS.txt << 'EOF'
-          X7Max/GTNeo/GTNeo2T Kernel
-          ========================
-          Build: 2025-03-23 18:49:24
-          Builder: dharani-dp-33
-
-          How to Flash:
-          1. Via Recovery:
-             - Flash X7Max-Kernel.zip
-             - Reboot
-
-          2. Via Fastboot:
-             - fastboot flash boot Image.gz-dtb
-             - fastboot reboot
-          EOF
-
-          # Create checksums
-          sha256sum Image.gz-dtb X7Max-Kernel.zip > SHA256SUMS.txt
-
-          # Package everything
-          cd ..
-          zip -r X7Max-Kernel-Full.zip flash_package/* -x "*.git*"
-
-      - name: Upload Package
+      - name: Upload Kernel Image
         uses: actions/upload-artifact@v4
         with:
-          name: X7Max-Kernel-Package
+          name: kernel-image
           path: |
-            X7Max-Kernel-Full.zip
-            flash_package/SHA256SUMS.txt
-            flash_package/FLASH_INSTRUCTIONS.txt
+            out/arch/arm64/boot/Image*
+            build.log
+            out/.config
           if-no-files-found: error
