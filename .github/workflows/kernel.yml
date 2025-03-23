@@ -18,14 +18,19 @@ jobs:
 
       - name: Fix Kconfig Structure
         run: |
-          # Check actual Kconfig structure
-          echo "=== Checking Kconfig Structure ==="
-          find . -name "Kconfig" -type f -exec echo {} \;
-          
-          # Remove the problematic include from init/Kconfig
-          if [ -f "init/Kconfig" ]; then
-            sed -i '/kernel\/sched_assist\/Kconfig/d' init/Kconfig
-          fi
+          # Create missing klockopt directory and Kconfig
+          mkdir -p kernel/locking/klockopt
+          cat > kernel/locking/klockopt/Kconfig << 'EOF'
+          config KLOCKOPT
+            bool "Kernel Lock Optimization"
+            default y
+            help
+              Enable kernel lock optimization features
+          EOF
+
+          # Verify the file was created
+          echo "=== Verifying Kconfig Creation ==="
+          cat kernel/locking/klockopt/Kconfig
 
       - name: Build Kernel
         run: |
@@ -35,11 +40,11 @@ jobs:
           export KBUILD_BUILD_USER=dharani-dp-33
           export KBUILD_BUILD_HOST="github-actions"
           
-          # Show current config
-          echo "=== Current Configuration ==="
-          ls -la arch/arm64/configs/
+          # Clean build directory
+          rm -rf out/
+          mkdir -p out/
           
-          # Attempt build
+          # Build with your specific defconfig
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
 
@@ -52,5 +57,4 @@ jobs:
             out/arch/arm64/boot/Image*
             build.log
             out/.config
-            arch/arm64/configs/*_defconfig
           if-no-files-found: warn
