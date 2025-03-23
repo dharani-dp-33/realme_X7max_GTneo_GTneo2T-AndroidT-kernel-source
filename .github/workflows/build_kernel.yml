@@ -1,15 +1,48 @@
-# This names your workflow
 name: Build Kernel Module
-
-# This tells GitHub when to run the workflow
 on:
-  workflow_dispatch:    # This means you can run it manually
+  workflow_dispatch:
 
-# These are the actual tasks to perform
 jobs:
   build:
-    runs-on: ubuntu-latest    # Use Ubuntu for building
+    runs-on: ubuntu-latest
     steps:
-      # Step 1: Get the code
       - name: Checkout Kernel
         uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          fetch-depth: 0
+          
+      - name: Setup Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential libssl-dev make bc bison flex libelf-dev zip
+
+      - name: Build Kernel
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export DEFCONFIG=mediatek_defconfig
+          
+          # Enable module loading
+          echo "CONFIG_MODULES=y" >> arch/arm64/configs/${DEFCONFIG}
+          echo "CONFIG_MODULE_UNLOAD=y" >> arch/arm64/configs/${DEFCONFIG}
+          echo "CONFIG_MODULE_FORCE_UNLOAD=y" >> arch/arm64/configs/${DEFCONFIG}
+          echo "CONFIG_MODULE_FORCE_LOAD=y" >> arch/arm64/configs/${DEFCONFIG}
+          echo "CONFIG_MODVERSIONS=y" >> arch/arm64/configs/${DEFCONFIG}
+          
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE $DEFCONFIG
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc)
+
+      - name: Package Kernel Module
+        run: |
+          mkdir -p release
+          cp out/arch/arm64/boot/Image.gz release/ || true
+          find out -name "*.ko" -exec cp {} release/ \; || true
+          cd release && zip -r ../kernel-module.zip *
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-module
+          path: kernel-module.zip
