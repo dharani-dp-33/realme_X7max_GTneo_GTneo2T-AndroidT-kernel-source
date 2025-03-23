@@ -10,7 +10,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
-          ref: master  # or "main" if your fork uses main branch
+          ref: master
 
       - name: Checkout MemKernel
         uses: actions/checkout@v4
@@ -18,16 +18,14 @@ jobs:
           repository: dharani-dp-33/MemKernel
           path: MemKernel
 
-      # Add your build steps here (e.g., make commands)
-      # Example:
+      # Add your kernel build command here (e.g., make)
       - name: Build Kernel
         run: |
           cd MemKernel
-          make your_build_command_here  # Replace with actual build command
+          make your_build_command_here  # Replace with actual command
 
-      # Upload artifact AFTER building
-      - name: Upload Artifact  
-        uses: actions/upload-artifact@v3  
-        with:  
-          name: kernel-build  
-          path: MemKernel/out/  # Replace with ACTUAL output folder (e.g., "out/", "bin/", "output/")
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4  # Updated to v4
+        with:
+          name: kernel-build
+          path: MemKernel/out/  # Replace with ACTUAL output folder
