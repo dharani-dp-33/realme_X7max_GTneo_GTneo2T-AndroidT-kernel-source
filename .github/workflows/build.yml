@@ -1,4 +1,4 @@
-name: X7Max Kernel Build
+name: Realme X7 Max Kernel Builder
 on:
   workflow_dispatch:
 
@@ -6,20 +6,52 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          ref: master  # Confirm branch matches your repo
+    - name: Checkout Kernel Source
+      uses: actions/checkout@v4
+      with:
+        repository: dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
+        ref: master
 
-      - name: Setup Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu build-essential libssl-dev
+    - name: Checkout MemKernel
+      uses: actions/checkout@v4
+      with:
+        repository: dharani-dp-33/MemKernel
+        path: MemKernel
 
-      - name: Configure Kernel
-        run: |
-          export ARCH=arm64
-          make k6891v1_64_k419_defconfig
+    - name: Setup Tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu build-essential
 
-      - name: Build Kernel
-        run: make -j$(nproc)
+    - name: Fix Kernel Config
+      run: |
+        # Remove problematic Kconfig line
+        sed -i '740d' init/Kconfig
+        
+        # Allow unsigned modules
+        echo 'CONFIG_MODULE_FORCE_LOAD=y' >> arch/arm64/configs/k6891v1_64_k419_defconfig
+        sed -i 's/CONFIG_MODULE_SIG=y//' arch/arm64/configs/k6891v1_64_k419_defconfig
+
+    - name: Build Kernel
+      run: |
+        export ARCH=arm64
+        make k6891v1_64_k419_defconfig
+        make -j$(nproc)
+
+    - name: Build Memory Module
+      run: |
+        cd MemKernel
+        KERNEL_SRC=../ make
+
+    - name: Package Results
+      run: |
+        mkdir Artifacts
+        cp arch/arm64/boot/Image.gz-dtb Artifacts/
+        cp MemKernel/*.ko Artifacts/
+        zip -r Kernel-Package.zip Artifacts
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Kernel-Modules-Package
+        path: Kernel-Package.zip
