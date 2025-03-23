@@ -1,49 +1,61 @@
 name: Realme X7 Max Kernel Builder
 on:
-  workflow_dispatch:  # Manually trigger the build
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest  # GitHub-hosted Linux runner
-
+    runs-on: ubuntu-latest
     steps:
-      # Step 1: Checkout your kernel source code
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           repository: dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
-          ref: master  # Use your branch name
+          ref: master
 
-      # Step 2: Checkout MemKernel toolchain/scripts (if needed)
       - name: Checkout MemKernel
         uses: actions/checkout@v4
         with:
           repository: dharani-dp-33/MemKernel
           path: MemKernel
 
-      # Step 3: Install dependencies (required for compilation)
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev git
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev findutils
 
-      # Step 4: Download cross-compiler toolchain (ARM64 example)
       - name: Setup Toolchain
         run: |
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 toolchain
 
-      # Step 5: Compile the kernel
+      # Auto-detect defconfig file
+      - name: Find Defconfig
+        id: find-defconfig
+        run: |
+          cd MemKernel
+          # Search for defconfig recursively in arch/arm64/configs
+          DEFCONFIG_PATH=$(find arch/arm64/configs/ -name "*_defconfig" | head -n 1)
+          
+          if [ -z "$DEFCONFIG_PATH" ]; then
+            echo "::error::No defconfig found in arch/arm64/configs/"
+            exit 1
+          fi
+
+          echo "Found defconfig at: $DEFCONFIG_PATH"
+          echo "DEFCONFIG_NAME=$(basename $DEFCONFIG_PATH)" >> $GITHUB_ENV
+          echo "DEFCONFIG_DIR=$(dirname $DEFCONFIG_PATH)" >> $GITHUB_ENV
+
       - name: Build Kernel
         run: |
-          cd MemKernel  # Replace with your kernel directory
+          cd MemKernel
           export ARCH=arm64
           export CROSS_COMPILE=$(pwd)/../toolchain/bin/aarch64-linux-android-
-          make realme_x7max_defconfig  # Replace with your device's defconfig
-          make -j$(nproc)  # Start the build
+          
+          # Use auto-detected defconfig
+          make O=out $DEFCONFIG_DIR/$DEFCONFIG_NAME
+          make -j$(nproc) O=out
 
-      # Step 6: Upload compiled kernel as an artifact
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build
-          path: MemKernel/arch/arm64/boot/Image.gz-dtb  # Path to kernel image
+          path: MemKernel/out/arch/arm64/boot/
