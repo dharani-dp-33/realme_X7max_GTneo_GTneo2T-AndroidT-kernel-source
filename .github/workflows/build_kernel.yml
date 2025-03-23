@@ -17,17 +17,82 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential libssl-dev make bc bison flex libelf-dev zip
 
-      - name: Verify Repository Structure
+      - name: Find DefConfig
         run: |
-          echo "Checking repository structure..."
-          echo "1. Checking arch/arm64/configs:"
-          ls -la arch/arm64/configs/ || echo "configs directory not found"
+          echo "Available defconfig files:"
+          find arch/arm64/configs/ -name "*defconfig" -type f
+          DEFCONFIG=$(find arch/arm64/configs/ -name "*defconfig" -type f | head -n 1)
+          echo "Will use defconfig: $DEFCONFIG"
           
-          echo "2. Checking kernel/sched_assist:"
-          ls -la kernel/sched_assist/ || echo "sched_assist directory not found"
+      - name: Build Kernel
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
           
-          echo "3. Looking for any defconfig files:"
-          find . -name "*defconfig" -type f
+          # Get the actual defconfig name
+          DEFCONFIG_NAME=$(find arch/arm64/configs/ -name "*defconfig" -type f | head -n 1)
+          DEFCONFIG_BASE=$(basename $DEFCONFIG_NAME)
+          echo "Using defconfig: $DEFCONFIG_BASE"
           
-          echo "4. Checking main Kconfig:"
-          cat init/Kconfig | grep -A 5 "sched_assist" || echo "No sched_assist in main Kconfig"
+          # Make the build directory
+          mkdir -p out
+          
+          # Build with verbose output
+          echo "Starting kernel build..."
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE $DEFCONFIG_BASE
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) V=1
+          
+          echo "Build complete. Checking output directory:"
+          ls -la out/arch/arm64/boot/
+
+      - name: Check Build Output
+        run: |
+          echo "Checking for kernel image:"
+          find out/ -name "Image*" -type f
+          
+          echo "Checking for kernel modules:"
+          find out/ -name "*.ko" -type f
+          
+          echo "Directory structure of out/:"
+          ls -R out/
+
+      - name: Package Output
+        run: |
+          echo "Creating release directory..."
+          mkdir -p release
+          
+          echo "Copying kernel image..."
+          cp out/arch/arm64/boot/Image.gz release/ || echo "No Image.gz found"
+          cp out/arch/arm64/boot/Image release/ || echo "No Image found"
+          
+          echo "Copying kernel modules..."
+          find out/ -name "*.ko" -exec cp {} release/ \; || echo "No .ko files found"
+          
+          echo "Contents of release directory:"
+          ls -la release/
+          
+          echo "Creating zip file..."
+          cd release && zip -r ../kernel-module.zip * || echo "Nothing to zip"
+          cd .. && ls -la kernel-module.zip || echo "No zip file created"
+
+      - name: Upload Artifacts
+        if: always()  # Try to upload even if previous steps failed
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-module
+          path: |
+            kernel-module.zip
+            release/*
+          if-no-files-found: warn
+
+      - name: Upload Build Logs
+        if: always()  # Always upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            out/.config
+            out/make.log
+            out/error.log
+          if-no-files-found: warn
