@@ -11,106 +11,110 @@ jobs:
         with:
           fetch-depth: 0
           
-      - name: Install Required Tools
+      - name: Setup Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y tree gcc-aarch64-linux-gnu gcc build-essential \
-          libssl-dev make bc bison flex libelf-dev zip
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
+          libssl-dev make bc bison flex libelf-dev zip \
+          libncurses-dev gzip python-is-python3
 
-      - name: Analyze Repository Structure
+      - name: Build Kernel
         run: |
-          # Create output directory
-          mkdir -p analysis_output
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
           
-          {
-            echo "=== Repository Analysis ==="
-            echo "Timestamp: $(date -u)"
-            echo "Working Directory: $(pwd)"
-            
-            echo -e "\n1. Root Directory Contents:"
-            ls -la
-            
-            echo -e "\n2. Looking for sched_assist directories:"
-            find . -name "sched_assist" -type d
-            
-            echo -e "\n3. Looking for klockopt directories:"
-            find . -name "klockopt" -type d
-            
-            echo -e "\n4. All Kconfig files:"
-            find . -name "Kconfig"
-            
-            echo -e "\n5. Directory Structure:"
-            tree -L 4 || echo "Tree command failed"
-            
-            echo -e "\n6. Symlinks:"
-            find . -type l -ls
-            
-            echo -e "\n7. Important Paths Content:"
-            echo "kernel/ directory:"
-            ls -la kernel/ 2>/dev/null || echo "No kernel directory"
-            echo -e "\ndrivers/ directory:"
-            ls -la drivers/ 2>/dev/null || echo "No drivers directory"
-            echo -e "\nvendor/ directory:"
-            ls -la vendor/ 2>/dev/null || echo "No vendor directory"
-            
-            echo -e "\n8. Kconfig Contents:"
-            for f in $(find . -name "Kconfig"); do
-              echo -e "\nFile: $f"
-              echo "===================="
-              cat "$f" 2>/dev/null || echo "Cannot read file"
-            done
-            
-            echo -e "\n=== Analysis Complete ==="
-          } | tee analysis_output/repository-analysis.txt
+          # Clean build directory
+          make clean && make mrproper
           
-          # List the analysis files
-          echo -e "\nGenerated Analysis Files:"
-          ls -l analysis_output/
+          # Configure kernel
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
+          
+          # Build kernel with all modules
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
 
-      - name: Check and Document Current Files
+      - name: Create Flashable Package
+        if: success()
         run: |
-          {
-            echo "=== Current File Status Check ==="
-            echo "Timestamp: $(date -u)"
-            
-            echo -e "\n1. Checking sched_assist:"
-            if [ -d "kernel/sched_assist" ]; then
-              echo "kernel/sched_assist exists"
-              ls -la kernel/sched_assist/
-            else
-              echo "kernel/sched_assist does not exist"
-            fi
-            
-            echo -e "\n2. Checking klockopt:"
-            if [ -d "kernel/locking/klockopt" ]; then
-              echo "kernel/locking/klockopt exists"
-              ls -la kernel/locking/klockopt/
-            else
-              echo "kernel/locking/klockopt does not exist"
-            fi
-            
-            echo -e "\n3. Full paths of key directories:"
-            find . -name "sched_assist" -type d -exec readlink -f {} \;
-            find . -name "klockopt" -type d -exec readlink -f {} \;
-            
-            echo -e "\n4. Git Status:"
-            git status
-            
-            echo -e "\n=== Status Check Complete ==="
-          } | tee analysis_output/current-status.txt
+          # Create package directory structure
+          mkdir -p AnyKernel3
+          cd AnyKernel3
+          
+          # Download AnyKernel3
+          git clone https://github.com/osm0sis/AnyKernel3.git .
+          
+          # Copy kernel image
+          cp ../out/arch/arm64/boot/Image.gz kernel/
+          cp ../out/arch/arm64/boot/dtb.img dtb
+          cp ../out/arch/arm64/boot/dtbo.img dtbo.img 2>/dev/null || echo "No dtbo.img found"
+          
+          # Update AnyKernel3 config
+          cat << 'EOL' > anykernel.sh
+          # AnyKernel3 Ramdisk Mod Script
+          # osm0sis @ xda-developers
+          
+          ## AnyKernel setup
+          # begin properties
+          properties() { '
+          kernel.string=Realme X7 Max Kernel
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=RMX3031
+          device.name2=
+          device.name3=
+          device.name4=
+          device.name5=
+          supported.versions=
+          supported.patchlevels=
+          '; }
+          # end properties
+          
+          # shell variables
+          block=/dev/block/bootdevice/by-name/boot;
+          is_slot_device=auto;
+          ramdisk_compression=auto;
+          
+          ## AnyKernel methods (DO NOT CHANGE)
+          . tools/ak3-core.sh;
+          
+          ## AnyKernel install
+          split_boot;
+          
+          flash_boot;
+          ## end install
+          EOL
+          
+          # Create flashable zip
+          zip -r9 ../kernel_flashable.zip * -x .git README.md *placeholder
+          
+          cd ..
+          echo "Created flashable package:"
+          ls -lh kernel_flashable.zip
 
-      - name: Upload Analysis Results
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: repository-analysis
-          path: analysis_output/
-          if-no-files-found: error
+          name: kernel-build-files
+          path: |
+            out/arch/arm64/boot/Image*
+            out/arch/arm64/boot/dtb*
+            build.log
+          if-no-files-found: warn
 
-      - name: Display Analysis Summary
+      - name: Upload Flashable Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-flashable
+          path: kernel_flashable.zip
+          if-no-files-found: warn
+
+      - name: Build Summary
         run: |
-          echo "=== Analysis Summary ==="
-          echo "Files generated:"
-          ls -l analysis_output/
-          
-          echo -e "\nKey findings:"
-          grep -h "exists\|directory\|File:" analysis_output/*.txt || echo "No key findings found"
+          echo "=== Build Complete ==="
+          echo "Generated files:"
+          ls -lh out/arch/arm64/boot/
+          echo -e "\nFlashable package:"
+          ls -lh kernel_flashable.zip || echo "No flashable package created"
