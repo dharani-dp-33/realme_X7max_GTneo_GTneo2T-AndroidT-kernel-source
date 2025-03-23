@@ -17,41 +17,69 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
           libssl-dev make bc bison flex libelf-dev zip
 
-      - name: Setup Vendor Files
+      - name: Setup Kconfig Files
         run: |
-          # Debug: Show current symlinks
-          echo "Current symlink targets:"
-          readlink kernel/sched_assist || echo "Not a symlink"
-          readlink kernel/locking/klockopt || echo "Not a symlink"
+          # Create directories
+          sudo mkdir -p kernel/sched_assist
+          sudo mkdir -p kernel/locking/klockopt
           
-          # Create vendor directory structure
-          sudo mkdir -p vendor/oplus/kernel/oplus_performance/sched_assist
-          sudo mkdir -p vendor/oplus/kernel/oplus_performance/locking/klockopt
-          
-          # Create Kconfig files in vendor directory
-          sudo tee vendor/oplus/kernel/oplus_performance/sched_assist/Kconfig > /dev/null << 'EOL'
+          # Create sched_assist Kconfig
+          cat > kernel/sched_assist/Kconfig << 'EOL'
           config OPLUS_FEATURE_SCHED_ASSIST
-            bool "Sched assist optimize"
+            tristate "sched_assist"
             default n
             help
-              Scheduler assist features
+              turning sched for ui, render and so on to improve UX
+
+          config OPLUS_FEATURE_SCHED_SPREAD
+            bool "sched_spread"
+            default n
+            help
+              This is the uifirst 5.0 feature, which will spread tasks,
+              kick runnable time from task demand and adjust bg's time slice.
+
+          config OPLUS_FEATURE_AUDIO_OPT
+            bool "config audio opt"
+            default n
+            help
+              audio task schedule opt
+
+          config MMAP_LOCK_OPT
+            bool "config mmap lock opt"
+            default n
+            depends on OPLUS_FEATURE_SCHED_ASSIST
+            help
+              reduce sleep time in mmap lock
+
+          config OPLUS_ALLBOOST_OPT
+            bool "config allboost opt"
+            default n
+            help
+              Make the SCHED_ALL_BOOST function take effect
+
+          config OPLUS_FG_BOOST
+            bool "config oplus fg boost"
+            default n
+            help
+              Make the SCHED_FG_BOOST function take effect
           EOL
           
-          sudo tee vendor/oplus/kernel/oplus_performance/locking/klockopt/Kconfig > /dev/null << 'EOL'
-          config OPLUS_FEATURE_KLOCKOPT
-            bool "Kernel lock optimization"
+          # Create klockopt Kconfig
+          cat > kernel/locking/klockopt/Kconfig << 'EOL'
+          config KERNEL_LOCK_OPT
+            tristate "config kernel lock opt"
             default n
             help
-              Kernel lock optimization features
+              uxmutex inplement & record rwsem owners
           EOL
           
           # Set permissions
-          sudo chown -R $USER:$USER vendor
+          sudo chown -R $USER:$USER kernel/
           
           # Debug: Show created files
           echo -e "\nCreated Kconfig files:"
-          ls -la vendor/oplus/kernel/oplus_performance/sched_assist/
-          ls -la vendor/oplus/kernel/oplus_performance/locking/klockopt/
+          ls -la kernel/sched_assist/
+          ls -la kernel/locking/klockopt/
 
       - name: Configure Build
         run: |
@@ -59,21 +87,9 @@ jobs:
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          # Debug: Show available configs
-          echo "Available ARM64 configs:"
-          ls -la arch/arm64/configs/
-          
-          # Create minimal defconfig first
-          cat > arch/arm64/configs/minimal_defconfig << 'EOL'
-          CONFIG_ARM64=y
-          CONFIG_CROSS_COMPILE="aarch64-linux-gnu-"
-          # Disable problematic features
-          # CONFIG_OPLUS_FEATURE_SCHED_ASSIST is not set
-          # CONFIG_OPLUS_FEATURE_KLOCKOPT is not set
-          EOL
-          
-          # Try minimal config first
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE minimal_defconfig
+          # Use MTK debug config
+          echo "Using k6891v1_64_k419_debug_defconfig"
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
           
           # Show config
           echo -e "\nConfiguration summary:"
@@ -95,8 +111,8 @@ jobs:
             echo "Build failed with status $BUILD_STATUS"
             echo "Last 50 lines of build log:"
             tail -n 50 build.log
-            # Show any Kconfig related errors
-            grep -i "kconfig" build.log
+            echo -e "\nKconfig related errors:"
+            grep -i "kconfig" build.log || true
             exit $BUILD_STATUS
           fi
 
@@ -108,5 +124,7 @@ jobs:
           path: |
             out/.config
             build.log
-            arch/arm64/configs/minimal_defconfig
+            out/arch/arm64/boot/Image*
+            kernel/sched_assist/Kconfig
+            kernel/locking/klockopt/Kconfig
           if-no-files-found: warn
