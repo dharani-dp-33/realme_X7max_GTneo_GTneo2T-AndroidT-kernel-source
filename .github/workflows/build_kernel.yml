@@ -17,14 +17,14 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
           libssl-dev make bc bison flex libelf-dev zip
 
-      - name: Setup Required Directories
+      - name: Setup Required Files
         run: |
           # Create temp directory with proper permissions
           mkdir -p /tmp/kernel_build
           cd /tmp/kernel_build
           
-          # Create directory structure with proper permissions
-          mkdir -p {sched_assist,klockopt}
+          # Create Kconfig files
+          mkdir -p sched_assist klockopt
           
           # Create sched_assist Kconfig
           cat > sched_assist/Kconfig << 'EOL'
@@ -60,19 +60,20 @@ jobs:
               for better system performance.
           EOL
           
-          # Copy files to workspace with proper permissions
           cd $GITHUB_WORKSPACE
-          sudo mkdir -p kernel/sched_assist kernel/locking/klockopt
-          sudo cp /tmp/kernel_build/sched_assist/Kconfig kernel/sched_assist/
-          sudo cp /tmp/kernel_build/klockopt/Kconfig kernel/locking/klockopt/
           
-          # Set permissions
-          sudo chown -R $(id -u):$(id -g) kernel/
+          # Remove existing symlinks if they exist
+          rm -f kernel/sched_assist/Kconfig kernel/locking/klockopt/Kconfig
           
-          # Debug output
-          echo "Created directories and Kconfig files:"
-          ls -la kernel/sched_assist/
-          ls -la kernel/locking/klockopt/
+          # Copy files to correct locations
+          mkdir -p kernel/sched_assist/ kernel/locking/klockopt/
+          cp /tmp/kernel_build/sched_assist/Kconfig kernel/sched_assist/
+          cp /tmp/kernel_build/klockopt/Kconfig kernel/locking/klockopt/
+          
+          # Debug: Show file status
+          echo "Kconfig files status:"
+          ls -la kernel/sched_assist/Kconfig
+          ls -la kernel/locking/klockopt/Kconfig
 
       - name: Configure Build
         run: |
@@ -147,4 +148,5 @@ jobs:
             build.log
             kernel/sched_assist/Kconfig
             kernel/locking/klockopt/Kconfig
+            init/Kconfig
           if-no-files-found: warn
