@@ -6,6 +6,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # 1. Fetch all code
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
@@ -18,44 +19,53 @@ jobs:
           repository: dharani-dp-33/MemKernel
           path: MemKernel
 
+      # 2. Setup environment
       - name: Install Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev findutils
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev
 
-      - name: Setup Toolchain
-        run: |
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 toolchain
-
-      # Auto-detect defconfig file
+      # 3. Auto-detect defconfig (priority: device name -> chipset -> first found)
       - name: Find Defconfig
         id: find-defconfig
         run: |
           cd MemKernel
-          # Search for defconfig recursively in arch/arm64/configs
-          DEFCONFIG_PATH=$(find arch/arm64/configs/ -name "*_defconfig" | head -n 1)
+          DEFCONFIG=$(find arch/arm64/configs/ -name "*x7max*defconfig" || 
+                     find arch/arm64/configs/ -name "*mt6893*defconfig" || 
+                     find arch/arm64/configs/ -name "*_defconfig" | head -n1)
           
-          if [ -z "$DEFCONFIG_PATH" ]; then
-            echo "::error::No defconfig found in arch/arm64/configs/"
+          if [ -z "$DEFCONFIG" ]; then
+            echo "::error::DEFCONFIG NOT FOUND! Check your kernel source."
             exit 1
           fi
+          echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
+          echo "Using: $DEFCONFIG"
 
-          echo "Found defconfig at: $DEFCONFIG_PATH"
-          echo "DEFCONFIG_NAME=$(basename $DEFCONFIG_PATH)" >> $GITHUB_ENV
-          echo "DEFCONFIG_DIR=$(dirname $DEFCONFIG_PATH)" >> $GITHUB_ENV
+      # 4. Modern toolchain (adjust URL if needed)
+      - name: Setup Toolchain
+        run: |
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_host_linux-x86_clang-r487747 toolchain
 
+      # 5. Simplified build process
       - name: Build Kernel
         run: |
           cd MemKernel
           export ARCH=arm64
-          export CROSS_COMPILE=$(pwd)/../toolchain/bin/aarch64-linux-android-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CLANG_PATH=$(pwd)/../toolchain/bin/clang
           
-          # Use auto-detected defconfig
-          make O=out $DEFCONFIG_DIR/$DEFCONFIG_NAME
-          make -j$(nproc) O=out
+          # Clean build
+          make clean && make mrproper
+          
+          # Build
+          make $DEFCONFIG
+          make -j$(nproc) CC=clang
 
+      # 6. Smart artifact upload
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build
-          path: MemKernel/out/arch/arm64/boot/
+          path: |
+            MemKernel/arch/arm64/boot/Image*
+            MemKernel/out/arch/arm64/boot/Image*
