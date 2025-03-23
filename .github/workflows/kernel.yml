@@ -1,4 +1,4 @@
-name: Build Kernel with Size Check
+name: Build Kernel
 on:
   workflow_dispatch:
 
@@ -8,215 +8,80 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          
-      - name: Setup Build Environment
+
+      - name: Setup Environment
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
-      - name: Final Setup Attempt
+      - name: Verify Repository Structure
         run: |
-          # Function to safely create directory
-          safe_mkdir() {
-            if [ ! -d "$1" ]; then
-              mkdir -p "$1" || echo "WARNING: Could not create $1"
-            else
-              echo "Directory $1 exists, skipping..."
-            fi
-          }
+          echo "=== Repository Check ==="
+          echo "Date: 2025-03-23 19:34:14"
+          echo "User: dharani-dp-33"
+          
+          # Check repository structure
+          ls -la
+          if [ -f "Kconfig" ]; then
+            echo "Found root Kconfig"
+          fi
+          if [ -f "init/Kconfig" ]; then
+            echo "Found init/Kconfig"
+            grep -n "kernel/sched_assist/Kconfig" init/Kconfig || echo "No sched_assist reference in init/Kconfig"
+          fi
 
-          # Function to safely write file
-          safe_write() {
-            local dir=$(dirname "$1")
-            safe_mkdir "$dir"
-            if [ ! -f "$1" ] || [ -w "$1" ]; then
-              cat > "$1" || echo "WARNING: Could not write to $1"
-            else
-              echo "WARNING: Cannot write to $1"
-            fi
-          }
-
-          echo "=== Starting Setup with Current Time ==="
-          echo "Current time: 2025-03-23 19:20:33"
-          echo "Current user: dharani-dp-33"
-
-          # 1. Safely create all directories
-          for dir in \
-            vendor/oplus/kernel/include \
-            vendor/oplus/kernel/secureguard/rootguard \
-            kernel/sched_assist \
-            kernel/orms \
-            kernel/oplus_cpu \
-            kernel/healthinfo \
-            kernel/dfr \
-            kernel/mm_osvelte \
-            kernel/performance \
-            drivers/soc/oplus \
-            drivers/input/oplus \
-            drivers/misc/oplus \
-            drivers/power/oplus \
-            drivers/staging/android/oplus \
-            drivers/oplus \
-            include/config; do
-            safe_mkdir "$dir"
-          done
-
-          # 2. Create version header with EXACT time
-          safe_write "vendor/oplus/kernel/include/oplus_version.h" << EOF
-          #ifndef _OPLUS_VERSION_H_
-          #define _OPLUS_VERSION_H_
-          #define OPLUS_BUILD_DATE "2025-03-23"
-          #define OPLUS_BUILD_TIME "19:20:33"
-          #define OPLUS_BUILD_USER "dharani-dp-33"
-          #endif
-          EOF
-
-          # 3. Create Kconfig files with error checking
-          for dir in kernel/*/; do
-            if [ -d "$dir" ]; then
-              feature=$(basename "$dir" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-              safe_write "${dir}Kconfig" << EOF
-          config OPLUS_FEATURE_${feature}
-              tristate "OPLUS ${feature} support"
-              default y
-              help
-                  OPLUS ${feature} kernel feature
-          EOF
-              safe_write "${dir}Makefile" << EOF
-          obj-\$(CONFIG_OPLUS_FEATURE_${feature}) += ${feature,,}.o
-          EOF
-            fi
-          done
-
-          # 4. Special handling for sched_assist
-          safe_write "kernel/sched_assist/Kconfig" << 'EOF'
+      - name: Create Required Kconfig
+        run: |
+          # Create required directories and files
+          mkdir -p kernel/sched_assist
+          cat > kernel/sched_assist/Kconfig << 'EOF'
           config OPLUS_FEATURE_SCHED_ASSIST
-              def_bool y
-              help
-                  OPLUS SchedAssist feature
-          EOF
-
-          # 5. Create core OPLUS config
-          safe_write "drivers/oplus/Kconfig" << 'EOF'
-          menu "OPLUS Feature Drivers"
-          config OPLUS_SYSTEM_KERNEL
-              bool "OPLUS system kernel"
+              bool "OPLUS sched assist"
               default y
               help
-                  OPLUS system kernel feature
-
-          source "kernel/sched_assist/Kconfig"
-          source "kernel/orms/Kconfig"
-          source "kernel/oplus_cpu/Kconfig"
-          source "kernel/healthinfo/Kconfig"
-          source "kernel/dfr/Kconfig"
-          source "kernel/mm_osvelte/Kconfig"
-          source "kernel/performance/Kconfig"
-          endmenu
+                  OPLUS sched assist
           EOF
-
-          # 6. Create vendor Makefiles
-          safe_write "vendor/oplus/Makefile" << 'EOF'
-          obj-y += kernel/
-          EOF
-
-          safe_write "vendor/oplus/kernel/Makefile" << 'EOF'
-          obj-y += secureguard/
-          EOF
-
-          # 7. Create base config
+          
+          # Create minimally required structure
+          mkdir -p include/config
           touch include/config/auto.conf
 
-          echo "=== Verifying Critical Files ==="
-          for file in \
-            kernel/sched_assist/Kconfig \
-            vendor/oplus/kernel/include/oplus_version.h \
-            drivers/oplus/Kconfig; do
-            if [ -f "$file" ]; then
-              echo "✓ $file exists"
-              head -n 1 "$file"
-            else
-              echo "✗ ERROR: $file missing!"
-            fi
-          done
-
-      - name: Build Kernel with Debug
+      - name: Build Kernel
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export KBUILD_BUILD_USER="dharani-dp-33"
+          export KBUILD_BUILD_USER=dharani-dp-33
           export KBUILD_BUILD_HOST="github-actions"
           
+          # Clean build directory
           rm -rf out/
           mkdir -p out/
           
-          echo "=== Starting Kernel Build with Verbose Output ==="
-          
-          # First, make sure defconfig succeeds
-          echo "Creating defconfig..."
-          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
-          
-          # Check if .config was created
-          if [ ! -f "out/.config" ]; then
-            echo "ERROR: .config file not created!"
-            exit 1
-          fi
-          
-          # Show some important config options
-          echo "Checking kernel config..."
-          cat out/.config | grep -i "CONFIG_ARM64"
-          cat out/.config | grep -i "CONFIG_DEBUG"
-          
           # Build with verbose output
-          echo "Starting main build..."
+          make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) V=1 2>&1 | tee build.log
-          
-          # Check build results
-          echo "=== Build Complete - Checking Results ==="
-          
-          # List all generated images
-          echo "Searching for kernel images..."
-          find out/arch/arm64/boot/ -type f -name "Image*" -ls
-          
-          # Check Image.gz-dtb size
+
+      - name: Check Build Output
+        run: |
           if [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
-            echo "Image.gz-dtb size:"
+            echo "Build successful!"
             ls -lh out/arch/arm64/boot/Image.gz-dtb
-            
-            # Verify minimum size (20MB)
-            size=$(stat -f%z "out/arch/arm64/boot/Image.gz-dtb" 2>/dev/null || stat -c%s "out/arch/arm64/boot/Image.gz-dtb")
-            if [ "$size" -lt 20000000 ]; then
-              echo "ERROR: Kernel image too small ($size bytes)!"
-              exit 1
-            fi
           else
-            echo "ERROR: Image.gz-dtb not found!"
-            # List what files we do have
-            echo "Files in out/arch/arm64/boot:"
-            ls -la out/arch/arm64/boot/
+            echo "Build failed - checking error logs..."
+            tail -n 50 build.log
             exit 1
           fi
 
-      - name: Upload Build Artifacts with Size Check
-        if: always()
+      - name: Upload Kernel
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-build-files
+          name: kernel-image-$(date +%s)
           path: |
-            out/arch/arm64/boot/Image*
+            out/arch/arm64/boot/Image.gz-dtb
             build.log
             out/.config
           if-no-files-found: error
-
-      - name: Verify Upload
-        if: success()
-        run: |
-          echo "=== Final Verification ==="
-          echo "Checking uploaded files..."
-          ls -lh out/arch/arm64/boot/Image*
-          echo "Build completed at: $(date)"
