@@ -1,4 +1,4 @@
-name: Realme X7 Max Stock Kernel Builder
+name: Realme X7 Max Kernel Builder
 on:
   workflow_dispatch:
 
@@ -9,44 +9,37 @@ jobs:
     - name: Checkout Kernel Source
       uses: actions/checkout@v4
       with:
-        repository: dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
+        repository: <YOUR_GITHUB_USERNAME>/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
         ref: master
 
-    - name: Clean Configuration
+    - name: Nuclear Kconfig Cleanup
       run: |
-        # Remove ALL problematic Kconfig references
-        sed -i '/rootguard/d' arch/arm64/Kconfig
-        sed -i '/sched_assist/d' init/Kconfig
-        sed -i '/klockopt/d' init/Kconfig
-        
-        # Force disable missing components
-        echo '# CONFIG_ROOTGUARD is not set' >> arch/arm64/configs/k6891v1_64_k419_defconfig
-        echo '# CONFIG_SCHED_ASSIST is not set' >> arch/arm64/configs/k6891v1_64_k419_defconfig
-        echo '# CONFIG_KLOCKOPT is not set' >> arch/arm64/configs/k6891v1_64_k419_defconfig
-        
-        # Enable essential module features
-        sed -i 's/CONFIG_MODULE_SIG=y//' arch/arm64/configs/k6891v1_64_k419_defconfig
-        echo 'CONFIG_MODULES=y' >> arch/arm64/configs/k6891v1_64_k419_defconfig
-        echo 'CONFIG_MODULE_FORCE_LOAD=y' >> arch/arm64/configs/k6891v1_64_k419_defconfig
+        # Remove all problematic references
+        find . -type f -name "Kconfig" -exec sed -i \
+        -e '/sched_assist/d' \
+        -e '/klockopt/d' \
+        -e '/rootguard/d' \
+        -e '/uxio_first/d' {} \;
+
+        # Create minimal defconfig
+        echo "CONFIG_MODULES=y" > arch/arm64/configs/minimal_defconfig
+        echo "CONFIG_MODULE_FORCE_LOAD=y" >> arch/arm64/configs/minimal_defconfig
+        echo "# CONFIG_MODULE_SIG is not set" >> arch/arm64/configs/minimal_defconfig
 
     - name: Build Kernel
       run: |
         export ARCH=arm64
-        make O=out k6891v1_64_k419_defconfig
+        make O=out ARCH=arm64 minimal_defconfig
         make -j$(nproc) O=out
         
-    - name: Verify Build
-      run: |
-        if [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
-          echo "Build successful!"
-          ls -lh out/arch/arm64/boot/Image.gz-dtb
-        else
-          echo "Build failed - check logs"
+        # Verify critical output
+        if [ ! -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
+          echo "❌ Build failed - check logs"
           exit 1
         fi
 
     - name: Upload Kernel Image
       uses: actions/upload-artifact@v4
       with:
-        name: x7max-stock-kernel
+        name: x7max-kernel
         path: out/arch/arm64/boot/Image.gz-dtb
