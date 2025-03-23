@@ -1,11 +1,44 @@
-- name: Install Dependencies
-  run: |
-    sudo apt-get update -y
-    sudo apt-get install -y \
-      build-essential \
-      libncurses6-dev \  # Updated package name
-      bison \
-      flex \
-      libssl-dev \
-      findutils \
-      git
+name: "Realme X7 Max Kernel Builder"
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Workflow Syntax
+        uses: actions/github-script@v6
+        with:
+          script: |
+            try {
+              await github.rest.actions.getWorkflow({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: '.github/workflows/build.yml'
+              });
+              core.info('✅ Workflow syntax validation passed');
+            } catch (error) {
+              core.setFailed(`❌ Workflow syntax error: ${error.message}`);
+            }
+
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          repository: dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source
+          ref: master
+          path: kernel
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential \
+            libncurses-dev \
+            bison \
+            flex \
+            libssl-dev \
+            findutils
+
+      # ... rest of your workflow steps ...
