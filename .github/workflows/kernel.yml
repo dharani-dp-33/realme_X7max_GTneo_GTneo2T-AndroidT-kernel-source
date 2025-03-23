@@ -20,11 +20,6 @@ jobs:
 
       - name: Setup OPLUS Features
         run: |
-          # First verify and create vendor directory structure
-          mkdir -p \
-            vendor/oplus/kernel/secureguard/rootguard \
-            vendor/oplus/kernel/include
-
           # Create version info headers
           mkdir -p vendor/oplus/kernel/include
           cat > vendor/oplus/kernel/include/oplus_version.h << EOF
@@ -32,42 +27,51 @@ jobs:
           #define _OPLUS_VERSION_H_
           
           #define OPLUS_BUILD_DATE "2025-03-23"
-          #define OPLUS_BUILD_TIME "17:00:29"
+          #define OPLUS_BUILD_TIME "17:19:55"
           #define OPLUS_BUILD_USER "dharani-dp-33"
           
           #endif /* _OPLUS_VERSION_H_ */
           EOF
 
-          # Create all OPLUS feature directories
-          mkdir -p \
-            kernel/sched_assist \
-            kernel/healthinfo \
-            kernel/task_cpustats \
-            kernel/hans \
-            kernel/storage_tool \
-            drivers/mmc/oplus \
-            drivers/scsi/ufs/oplus \
-            drivers/aod \
-            drivers/dc \
-            drivers/modem \
-            drivers/engineertools \
-            drivers/theia \
-            drivers/app_monitor \
-            mm/multi_kswapd \
-            drivers/phoenix \
-            drivers/sensor \
-            drivers/iomonitor \
-            mm/memleak_detect \
-            net/oplus_wifi_mtu \
-            net/oplus_wifi_sla \
-            drivers/power/oplus \
-            drivers/soc/oplus \
-            drivers/input/oplus \
-            drivers/misc/oplus
+          # Function to create directory only if it doesn't exist
+          create_dir_if_missing() {
+            if [ ! -d "$1" ]; then
+              mkdir -p "$1"
+            fi
+          }
 
-          # Create master OPLUS Kconfig
-          mkdir -p drivers/oplus
-          cat > drivers/oplus/Kconfig << 'EOF'
+          # Create directories only if they don't exist
+          create_dir_if_missing "vendor/oplus/kernel/secureguard/rootguard"
+          create_dir_if_missing "vendor/oplus/kernel/include"
+          create_dir_if_missing "kernel/sched_assist"
+          create_dir_if_missing "kernel/healthinfo"
+          create_dir_if_missing "kernel/task_cpustats"
+          create_dir_if_missing "kernel/hans"
+          create_dir_if_missing "kernel/storage_tool"
+          create_dir_if_missing "drivers/mmc/oplus"
+          create_dir_if_missing "drivers/scsi/ufs/oplus"
+          create_dir_if_missing "drivers/aod"
+          create_dir_if_missing "drivers/dc"
+          create_dir_if_missing "drivers/modem"
+          create_dir_if_missing "drivers/engineertools"
+          create_dir_if_missing "drivers/theia"
+          create_dir_if_missing "drivers/app_monitor"
+          create_dir_if_missing "mm/multi_kswapd"
+          create_dir_if_missing "drivers/phoenix"
+          create_dir_if_missing "drivers/sensor"
+          create_dir_if_missing "drivers/iomonitor"
+          create_dir_if_missing "mm/memleak_detect"
+          create_dir_if_missing "net/oplus_wifi_mtu"
+          create_dir_if_missing "net/oplus_wifi_sla"
+          create_dir_if_missing "drivers/power/oplus"
+          create_dir_if_missing "drivers/soc/oplus"
+          create_dir_if_missing "drivers/input/oplus"
+          create_dir_if_missing "drivers/misc/oplus"
+          create_dir_if_missing "drivers/oplus"
+
+          # Create master OPLUS Kconfig if it doesn't exist
+          if [ ! -f "drivers/oplus/Kconfig" ]; then
+            cat > drivers/oplus/Kconfig << 'EOF'
           menu "OPLUS Features Configuration"
           
           config OPLUS_SYSTEM_KERNEL
@@ -102,8 +106,56 @@ jobs:
           source "drivers/misc/oplus/Kconfig"
           endmenu
           EOF
+          fi
 
-          # Create Kconfig and basic files for each OPLUS feature
+          # Function to create feature files if they don't exist
+          setup_feature() {
+            local dir="$1"
+            local feature=$(basename "$dir" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+            
+            # Create Kconfig if it doesn't exist
+            if [ ! -f "${dir}/Kconfig" ]; then
+              cat > "${dir}/Kconfig" << EOF
+          config OPLUS_FEATURE_${feature}
+              tristate "OPLUS ${feature} feature"
+              default y
+              help
+                OPLUS ${feature} feature
+          EOF
+            fi
+            
+            # Create Makefile if it doesn't exist
+            if [ ! -f "${dir}/Makefile" ]; then
+              echo "obj-\$(CONFIG_OPLUS_FEATURE_${feature}) += ${feature,,}.o" > "${dir}/Makefile"
+            fi
+            
+            # Create .c file if it doesn't exist
+            if [ ! -f "${dir}/${feature,,}.c" ]; then
+              cat > "${dir}/${feature,,}.c" << EOF
+          #include <linux/init.h>
+          #include <linux/module.h>
+          #include <linux/kernel.h>
+          #include "../../vendor/oplus/kernel/include/oplus_version.h"
+
+          static int __init oplus_${feature,,}_init(void)
+          {
+              return 0;
+          }
+
+          static void __exit oplus_${feature,,}_exit(void)
+          {
+          }
+
+          module_init(oplus_${feature,,}_init);
+          module_exit(oplus_${feature,,}_exit);
+
+          MODULE_LICENSE("GPL");
+          MODULE_DESCRIPTION("OPLUS ${feature} Driver");
+          EOF
+            fi
+          }
+
+          # Setup each feature
           for dir in \
             kernel/sched_assist \
             kernel/healthinfo \
@@ -129,48 +181,16 @@ jobs:
             drivers/soc/oplus \
             drivers/input/oplus \
             drivers/misc/oplus; do
-            
-            feature=$(basename $dir | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-            
-            # Create Kconfig
-            cat > "${dir}/Kconfig" << EOF
-          config OPLUS_FEATURE_${feature}
-              tristate "OPLUS ${feature} feature"
-              default y
-              help
-                OPLUS ${feature} feature
-          EOF
-            
-            # Create Makefile
-            echo "obj-\$(CONFIG_OPLUS_FEATURE_${feature}) += ${feature,,}.o" > "${dir}/Makefile"
-            
-            # Create basic .c file
-            cat > "${dir}/${feature,,}.c" << EOF
-          #include <linux/init.h>
-          #include <linux/module.h>
-          #include <linux/kernel.h>
-          #include "../../vendor/oplus/kernel/include/oplus_version.h"
-
-          static int __init oplus_${feature,,}_init(void)
-          {
-              return 0;
-          }
-
-          static void __exit oplus_${feature,,}_exit(void)
-          {
-          }
-
-          module_init(oplus_${feature,,}_init);
-          module_exit(oplus_${feature,,}_exit);
-
-          MODULE_LICENSE("GPL");
-          MODULE_DESCRIPTION("OPLUS ${feature} Driver");
-          EOF
+            setup_feature "$dir"
           done
 
-          # Special handling for rootguard due to symlink
-          echo 'obj-y := rootguard.o' > vendor/oplus/kernel/secureguard/rootguard/Makefile
-          cat > vendor/oplus/kernel/secureguard/rootguard/rootguard.c << EOF
+          # Special handling for rootguard
+          if [ ! -f "vendor/oplus/kernel/secureguard/rootguard/Makefile" ]; then
+            echo 'obj-y := rootguard.o' > vendor/oplus/kernel/secureguard/rootguard/Makefile
+          fi
+          
+          if [ ! -f "vendor/oplus/kernel/secureguard/rootguard/rootguard.c" ]; then
+            cat > vendor/oplus/kernel/secureguard/rootguard/rootguard.c << EOF
           #include <linux/init.h>
           #include <linux/module.h>
           #include <linux/kernel.h>
@@ -191,12 +211,17 @@ jobs:
           MODULE_LICENSE("GPL");
           MODULE_DESCRIPTION("OPLUS Rootguard Module");
           EOF
+          fi
 
-          # Add main OPLUS Makefile
-          echo 'obj-y += kernel/' > vendor/oplus/Makefile
-          echo 'obj-y += secureguard/' > vendor/oplus/kernel/Makefile
+          # Add main OPLUS Makefiles if they don't exist
+          if [ ! -f "vendor/oplus/Makefile" ]; then
+            echo 'obj-y += kernel/' > vendor/oplus/Makefile
+          fi
+          
+          if [ ! -f "vendor/oplus/kernel/Makefile" ]; then
+            echo 'obj-y += secureguard/' > vendor/oplus/kernel/Makefile
+          fi
 
-          # Verify critical paths
           echo "=== Verifying Directory Structure ==="
           ls -la vendor/oplus/kernel/secureguard/rootguard/
           ls -la vendor/oplus/kernel/include/
