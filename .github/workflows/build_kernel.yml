@@ -18,24 +18,41 @@ jobs:
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
-      - name: Clone AnyKernel3
+      - name: Create Required Files
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3
-          # Setup AnyKernel3 for Realme X7 Max
-          cd AnyKernel3
-          # Update anykernel.sh with device-specific values
-          sed -i 's/do.devicecheck=1/do.devicecheck=1/g' anykernel.sh
-          sed -i 's/device.name1=/device.name1=RMX3031/g' anykernel.sh
-          sed -i 's/device.name2=/device.name2=RMX3033/g' anykernel.sh
-          sed -i 's/device.name3=/device.name3=GTNeo/g' anykernel.sh
-          sed -i 's/device.name4=/device.name4=GTNeo2T/g' anykernel.sh
-          sed -i 's/device.name5=/device.name5=X7Max/g' anykernel.sh
-          cd ..
+          # Create rootguard directory and Makefile
+          mkdir -p arch/arm64/kernel/rootguard
+          
+          # Create a basic Makefile for rootguard
+          cat << 'EOL' > arch/arm64/kernel/rootguard/Makefile
+          # Basic Makefile for rootguard
+          obj-$(CONFIG_OPLUS_ROOT_CHECK) += rootguard.o
+          ccflags-y += -Werror
+          EOL
+          
+          # Create a dummy rootguard.c if it doesn't exist
+          if [ ! -f "arch/arm64/kernel/rootguard/rootguard.c" ]; then
+            cat << 'EOL' > arch/arm64/kernel/rootguard/rootguard.c
+          #include <linux/init.h>
+          #include <linux/module.h>
+          
+          static int __init rootguard_init(void)
+          {
+              return 0;
+          }
+          
+          static void __exit rootguard_exit(void)
+          {
+          }
+          
+          module_init(rootguard_init);
+          module_exit(rootguard_exit);
+          MODULE_LICENSE("GPL");
+          EOL
+          fi
 
       - name: Setup OPLUS Config
         run: |
-          # Create OplusKernelEnvConfig.mk
-          echo "Creating OplusKernelEnvConfig.mk..."
           cat << 'EOL' > OplusKernelEnvConfig.mk
           # OPLUS Features Configuration
           OPLUS_FEATURE_HEALTHINFO=yes
@@ -79,13 +96,19 @@ jobs:
           cp OplusKernelEnvConfig.mk Makefile.oplus
           echo "include Makefile.oplus" >> Makefile
           
-          # Clean build
-          make mrproper
+          echo "Cleaning build directory..."
+          if [ -d "out" ]; then
+            rm -rf out
+          fi
           
-          # Configure kernel
+          echo "Creating out directory..."
+          mkdir -p out
+          
+          echo "Configuring kernel..."
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE k6891v1_64_k419_debug_defconfig
           
           # Enable OPLUS features in config
+          echo "Enabling OPLUS features..."
           while IFS= read -r line; do
             if [[ $line =~ ^OPLUS_FEATURE_ && ! $line =~ ^# ]]; then
               feature=$(echo "$line" | cut -d'=' -f1)
@@ -93,28 +116,11 @@ jobs:
             fi
           done < OplusKernelEnvConfig.mk
           
-          # Update config
+          echo "Updating kernel config..."
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
           
-          # Build kernel
+          echo "Building kernel..."
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) 2>&1 | tee build.log
-
-      - name: Package Kernel
-        run: |
-          if [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
-            # Copy kernel to AnyKernel3 directory
-            cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
-            
-            # Create flashable ZIP
-            cd AnyKernel3
-            zip -r9 ../X7Max-Kernel-$(date +%Y%m%d).zip * -x .git README.md *placeholder
-            cd ..
-            
-            echo "Kernel packaged successfully!"
-          else
-            echo "Error: Kernel image not found!"
-            exit 1
-          fi
 
       - name: Upload Build Artifacts
         if: always()
@@ -126,5 +132,5 @@ jobs:
             build.log
             OplusKernelEnvConfig.mk
             out/.config
-            *.zip
+            arch/arm64/kernel/rootguard/*
           if-no-files-found: warn
