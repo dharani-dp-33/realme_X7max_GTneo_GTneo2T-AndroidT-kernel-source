@@ -17,23 +17,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential libssl-dev make bc bison flex libelf-dev zip
 
-      - name: Check Directory Structure
+      - name: Check and Setup Directory Structure
         run: |
-          echo "Checking directory structure..."
-          ls -la kernel/
-          echo "Content of sched_assist directory:"
-          ls -la kernel/sched_assist/ || echo "Directory empty or inaccessible"
-          echo "Available defconfigs:"
-          ls -la arch/arm64/configs/
-
-      - name: Update Kconfig
-        run: |
-          if [ ! -f kernel/sched_assist/Kconfig ]; then
-            echo "# Scheduler Assist Configuration" > kernel/sched_assist/Kconfig
-            echo "config SCHED_ASSIST" >> kernel/sched_assist/Kconfig
-            echo "  bool \"Scheduler Assist\"" >> kernel/sched_assist/Kconfig
-            echo "  default n" >> kernel/sched_assist/Kconfig
-          fi
+          echo "Current directory structure:"
+          ls -la
+          echo "Creating necessary directories..."
+          sudo mkdir -p kernel/sched_assist
+          sudo chmod 777 kernel/sched_assist
+          echo "# Scheduler Assist Configuration" | sudo tee kernel/sched_assist/Kconfig
+          echo "config SCHED_ASSIST" | sudo tee -a kernel/sched_assist/Kconfig
+          echo "  bool \"Scheduler Assist\"" | sudo tee -a kernel/sched_assist/Kconfig
+          echo "  default n" | sudo tee -a kernel/sched_assist/Kconfig
+          echo "Directory created and Kconfig added"
+          ls -la kernel/sched_assist/
 
       - name: Build Kernel
         run: |
@@ -41,20 +37,19 @@ jobs:
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          # First, let's check what defconfigs are available
           echo "Available defconfigs:"
-          ls arch/arm64/configs/
+          ls -la arch/arm64/configs/
           
-          # Try to use the correct defconfig
+          # Use specific defconfig for Realme X7 Max
           export DEFCONFIG=$(ls arch/arm64/configs/ | grep -i "oppo\|mediatek" | head -n 1)
           echo "Using defconfig: ${DEFCONFIG}"
           
           # Enable module loading
-          echo "CONFIG_MODULES=y" >> arch/arm64/configs/${DEFCONFIG}
-          echo "CONFIG_MODULE_UNLOAD=y" >> arch/arm64/configs/${DEFCONFIG}
-          echo "CONFIG_MODULE_FORCE_UNLOAD=y" >> arch/arm64/configs/${DEFCONFIG}
-          echo "CONFIG_MODULE_FORCE_LOAD=y" >> arch/arm64/configs/${DEFCONFIG}
-          echo "CONFIG_MODVERSIONS=y" >> arch/arm64/configs/${DEFCONFIG}
+          echo "CONFIG_MODULES=y" | sudo tee -a arch/arm64/configs/${DEFCONFIG}
+          echo "CONFIG_MODULE_UNLOAD=y" | sudo tee -a arch/arm64/configs/${DEFCONFIG}
+          echo "CONFIG_MODULE_FORCE_UNLOAD=y" | sudo tee -a arch/arm64/configs/${DEFCONFIG}
+          echo "CONFIG_MODULE_FORCE_LOAD=y" | sudo tee -a arch/arm64/configs/${DEFCONFIG}
+          echo "CONFIG_MODVERSIONS=y" | sudo tee -a arch/arm64/configs/${DEFCONFIG}
           
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE $DEFCONFIG
           make O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc)
