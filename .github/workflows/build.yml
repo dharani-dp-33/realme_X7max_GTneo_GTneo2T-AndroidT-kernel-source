@@ -1,84 +1,74 @@
-name: Realme X7 Max Kernel Build
+name: Realme X7 Max Kernel Builder
 on:
   workflow_dispatch:
+  push:
+    branches: [master]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Build Environment
+      # ========================
+      # 1. Clone & Prepare Source
+      # ========================
+      - name: Clone OnePlus Nord 2 Kernel
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
-          libssl-dev make bc bison flex libelf-dev zip \
-          libncurses-dev gzip python-is-python3
+          git clone --depth=1 "https://github.com/OnePlusOSS/android_kernel_oneplus_mt6893" kernel
+          cd kernel
 
-      - name: Fix Kconfig Dependencies
+          # Add Realme X7 Max drivers
+          git clone https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source realme_source
+          cp -r realme_source/drivers/input/touchscreen/oplus/* drivers/input/touchscreen/oplus/
+          cp -r realme_source/drivers/gpu/drm/panel/realme_x7max drivers/gpu/drm/panel/
+          cp -r realme_source/arch/arm64/boot/dts/realme/x7max arch/arm64/boot/dts/realme/
+
+          # Cleanup
+          rm -rf realme_source
+
+      # ========================
+      # 2. Fix Configs & Makefiles
+      # ========================
+      - name: Patch Configuration
         run: |
-          # First, backup init/Kconfig
-          cp init/Kconfig init/Kconfig.backup
-          
-          # Remove the problematic lines from init/Kconfig
-          sed -i '737d' init/Kconfig  # Remove the line that sources sched_assist/Kconfig
-          
-          # Create empty directories to satisfy dependencies
-          mkdir -p kernel/sched_assist
-          touch kernel/sched_assist/Kconfig
-          
-          # Double check the changes
-          echo "=== Checking init/Kconfig modifications ==="
-          diff init/Kconfig.backup init/Kconfig || true
-          
-          # Remove other OPLUS dependencies
-          rm -rf arch/arm64/kernel/rootguard
-          rm -rf drivers/input/touchscreen/oplus_touchscreen
-          rm -f OplusKernelEnvConfig.mk
-          
-          # Clean Makefiles and Kconfig files of OPLUS references
-          find . -type f -name "Makefile" -exec sed -i -e '/^if.*OPLUS_/,/^endif/d' -e '/OPLUS_/d' -e '/_FEATURE_/d' {} +
-          find . -type f -name "Kconfig*" -exec sed -i -e '/^if.*OPLUS_/,/^endif/d' -e '/OPLUS_/d' -e '/_FEATURE_/d' {} +
+          cd kernel
+          # Add Realme drivers to defconfig
+          echo "CONFIG_TOUCHSCREEN_REALME_X7MAX=y" >> arch/arm64/configs/oneplus_nord2_defconfig
+          echo "CONFIG_DRM_PANEL_REALME_X7MAX=y" >> arch/arm64/configs/oneplus_nord2_defconfig
 
-      - name: Prepare Build Configuration
-        run: |
-          # Create minimal config
-          mkdir -p build
-          cat > arch/arm64/configs/minimal_defconfig << 'EOF'
-          CONFIG_ARM64=y
-          CONFIG_CROSS_COMPILE="aarch64-linux-gnu-"
-          # Basic MTK configs
-          CONFIG_MEDIATEK_SOLUTION=y
-          CONFIG_MTK_PLATFORM="mt6891"
-          CONFIG_ARCH_MEDIATEK=y
-          EOF
-          
-          # Show the config
-          echo "=== Generated minimal_defconfig ==="
-          cat arch/arm64/configs/minimal_defconfig
+          # Update Makefiles
+          echo 'obj-$(CONFIG_TOUCHSCREEN_REALME_X7MAX) += realme_x7max_touch/' >> drivers/input/touchscreen/oplus/Makefile
+          echo 'obj-$(CONFIG_DRM_PANEL_REALME_X7MAX) += realme_x7max/' >> drivers/gpu/drm/panel/Makefile
+          echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += realme/x7max/realme-x7max.dtb' >> arch/arm64/boot/dts/Makefile
 
+      # ========================
+      # 3. Build with Error Handling
+      # ========================
       - name: Build Kernel
         run: |
+          cd kernel
           export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export KBUILD_BUILD_USER=dharani-dp-33
-          export KBUILD_BUILD_HOST="github-actions"
-          
-          # Try build with minimal config first
-          make O=build minimal_defconfig
-          make O=build -j$(nproc) 2>&1 | tee build.log
+          set -e  # Exit immediately on error
 
-      - name: Upload Output
-        if: always()
+          # Workaround for DTB paths
+          mkdir -p out/arch/arm64/boot/dts/realme/x7max
+
+          make O=out oneplus_nord2_defconfig
+          make O=out -j$(nproc) 2>&1 | tee build.log
+
+          # Post-build validation
+          if [ ! -f "out/arch/arm64/boot/Image" ]; then
+            echo "::error::Kernel image not generated!"
+            exit 1
+          fi
+
+      # ========================
+      # 4. Upload Artifact
+      # ========================
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-build-$(date +%s)
+          name: kernel-build
           path: |
-            build/arch/arm64/boot/Image*
-            build.log
-            build/.config
-            init/Kconfig
-            init/Kconfig.backup
-          if-no-files-found: warn
+            kernel/out/arch/arm64/boot/Image
+            kernel/out/arch/arm64/boot/dts/realme/x7max/realme-x7max.dtb
+          if-no-files-found: error
