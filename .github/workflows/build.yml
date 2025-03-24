@@ -11,58 +11,55 @@ jobs:
       # ========================  
       # 1. Fresh Clone & Nuclear Cleanup  
       # ========================  
-      - name: Clone and Purge OPLUS  
+      - name: Clone and Sanitize Source  
         run: |  
-          git clone --depth=1 \  
-            https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source \  
+          # Force fresh clone (no cache)  
+          git clone --depth=1 --no-tags \  
+            "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \  
             kernel  
           cd kernel  
 
-          # Delete ALL OPLUS directories  
+          # Delete ALL OPLUS directories (verified paths)  
           rm -rf \  
             arch/arm64/kernel/rootguard \  
+            drivers/input/touchscreen/oplus_touchscreen \  
             kernel/sched_assist \  
             kernel/locking/klockopt \  
-            drivers/soc/oplus \  
-            drivers/input/touchscreen/oplus_touchscreen  
+            drivers/soc/oplus  
 
-          # Purge OPLUS references from all files  
-          find . -type f \( -name "*Kconfig*" -o -name "*Makefile*" -o -name "*.mk" \) \  
-            -exec sed -i \  
-              -e '/OPLUS_/d' \  
-              -e '/_FEATURE_/d' \  
-              -e '/rootguard/d' \  
-              -e '/sched_assist/d' \  
-              -e '/klockopt/d' \  
-              -e '/oplus_touchscreen/d' \  
-              {} \;  
+          # Purge OPLUS references from ALL files  
+          find . -type f \( -name "Kconfig*" -o -name "Makefile*" -o -name "*.mk" \) \  
+            -exec sed -i -E '/OPLUS_|_FEATURE_|rootguard|sched_assist|klockopt|oplus_touchscreen/d' {} \;  
 
       # ========================  
-      # 2. Build with Isolated Config  
+      # 2. Build with Zero Dependencies  
       # ========================  
-      - name: Build Vanilla Kernel  
+      - name: Build Minimal Kernel  
         run: |  
           cd kernel  
           export ARCH=arm64  
 
-          # Minimal defconfig (no dependencies)  
+          # Create stripped-down config  
           cat << EOF > arch/arm64/configs/generic_defconfig  
           CONFIG_ARM64=y  
           CONFIG_SMP=y  
           CONFIG_BLOCK=y  
           CONFIG_MMU=y  
+          CONFIG_SERIAL_AMBA_PL011=y  
           EOF  
 
-          # Clean environment  
+          # Atomic build process  
           make O=build distclean  
-
-          # Build  
           make O=build generic_defconfig  
           make O=build -j$(nproc)  
 
       # ========================  
-      # 3. Validate & Upload  
+      # 3. Artifact Verification  
       # ========================  
+      - name: Validate Output  
+        run: |  
+          [ -f "kernel/build/arch/arm64/boot/Image" ] || (echo "::error::Build failed!" && exit 1)  
+
       - name: Upload Artifact  
         uses: actions/upload-artifact@v4  
         with:  
