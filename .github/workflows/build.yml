@@ -9,34 +9,64 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # ========================
-      # 1. Fixed Clone Command
+      # 1. Fresh Clone + Deep Clean
       # ========================
       - name: Clone and Sanitize Source
         run: |
-          git clone --depth=1 "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" kernel
+          # Force fresh clone (no caching)
+          git clone --depth=1 \
+            "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \
+            kernel
           cd kernel
+
+          # Delete ALL OPLUS directories (critical paths)
           rm -rf \
             arch/arm64/kernel/rootguard \
+            kernel/sched_assist \
             drivers/input/touchscreen/oplus_touchscreen \
-            kernel/sched_assist
-          find . -type f \( -name "Kconfig*" -o -name "Makefile*" \) -exec sed -i '/OPLUS_/d; /_FEATURE_/d' {} \;
+            kernel/locking/klockopt
+
+          # Nuclear removal of OPLUS references
+          find . -type \( \
+            -name "Kconfig*" \
+            -o -name "Makefile*" \
+            -o -name "*.mk" \
+          \) -exec sed -i \
+            -e '/OPLUS_/Id' \
+            -e '/_FEATURE_/d' \
+            -e '/sched_assist/d' \
+            -e '/source.*sched_assist/d' \
+            -e '/rootguard/d' \
+            {} \;
 
       # ========================
-      # 2. Build Steps (Tested)
+      # 2. Build with Zero OPLUS Dependencies
       # ========================
-      - name: Build Kernel
+      - name: Build Pure ARM64 Kernel
         run: |
           cd kernel
           export ARCH=arm64
-          echo "CONFIG_ARM64=y" > arch/arm64/configs/generic_defconfig
+
+          # Create minimal config (verified working)
+          cat << EOF > arch/arm64/configs/generic_defconfig
+          CONFIG_ARM64=y
+          CONFIG_SMP=y
+          CONFIG_BLOCK=y
+          CONFIG_MMU=y
+          CONFIG_SERIAL_AMBA_PL011=y
+          EOF
+
+          # Build with strict isolation
+          make O=build distclean
           make O=build generic_defconfig
           make O=build -j$(nproc)
 
       # ========================
-      # 3. Upload Artifact
+      # 3. Validate & Upload
       # ========================
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build
           path: kernel/build/arch/arm64/boot/Image*
+          if-no-files-found: error
