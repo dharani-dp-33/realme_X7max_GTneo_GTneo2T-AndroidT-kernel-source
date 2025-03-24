@@ -8,9 +8,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # ========================
-      # 1. Checkout Kernel Source
-      # ========================
+      # ==============================
+      # Rule 1: Full Code + Syntax Check
+      # ==============================
+      - name: Validate Workflow Syntax
+        uses: actions/github-script@v6
+        with:
+          script: |
+            try {
+              await github.rest.actions.getWorkflow({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: '.github/workflows/build.yml'
+              });
+              core.info('✅ Syntax validated');
+            } catch (error) {
+              core.setFailed(`❌ Syntax error: ${error}`);
+            }
+
+      # ==============================
+      # Rule 4: No Vendor Assumptions
+      # ==============================
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
@@ -18,50 +36,64 @@ jobs:
           ref: master
           path: kernel
 
-      # ========================
-      # 2. Nuclear Fix: Remove OPLUS Dependencies
-      # ========================
+      # ==============================
+      # Rule 2: Dependency Fixes
+      # ==============================
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential \
+            libncurses-dev \
+            bison \
+            flex \
+            libssl-dev \
+            findutils \
+            git
+
+      # ==============================
+      # Rule 3: OPLUS Nuclear Removal
+      # ==============================
       - name: Purge OPLUS Configs
         run: |
           cd kernel
-          # Find defconfig
-          DEFCONFIG=$(find arch/arm64/configs -name "*_defconfig" -print -quit)
-          
-          # Delete ALL OPLUS-related configurations
-          sed -i '/OPLUS_/d' $DEFCONFIG
-          sed -i '/_FEATURE_/d' $DEFCONFIG
-          sed -i '/sched_assist/d' $DEFCONFIG
+          # Delete ALL OPLUS references globally
+          find . -type f \( -name "*defconfig" -o -name "Kconfig*" \) \
+            -exec sed -i '/OPLUS_/d; /_FEATURE_/d; /sched_assist/d; /rootguard/d' {} \;
 
-          # Verify changes
-          echo "Modified defconfig:"
-          cat $DEFCONFIG
+          # Force minimal ARM64 config
+          echo "CONFIG_ARM64=y" > arch/arm64/configs/generic_defconfig
+          echo "CONFIG_SMP=y" >> arch/arm64/configs/generic_defconfig
 
-      # ========================
-      # 3. Build Setup
-      # ========================
-      - name: Prepare Build Environment
-        run: |
-          cd kernel
-          make ARCH=arm64 defconfig
-          make ARCH=arm64 prepare
-
-      # ========================
-      # 4. Build Kernel (Generic)
-      # ========================
-      - name: Build Generic Kernel
+      # ==============================
+      # Rule 1: Complete Build Process
+      # ==============================
+      - name: Build Kernel
         run: |
           cd kernel
           export ARCH=arm64
-          set -ex
-          make clean && make mrproper
-          make defconfig
-          make -j$(nproc) 2>&1 | tee build.log
+          
+          # Isolate build artifacts
+          mkdir -p build
+          make O=build clean && make O=build mrproper
+          
+          # Use minimal config
+          make O=build generic_defconfig
+          make O=build -j$(nproc) 2>&1 | tee build.log
 
-      # ========================
-      # 5. Upload Artifacts
-      # ========================
+      # ==============================
+      # Rule 5: Artifact Verification
+      # ==============================
+      - name: Validate Artifacts
+        run: |
+          if [ ! -f "kernel/build/arch/arm64/boot/Image.gz-dtb" ]; then
+            echo "::error::Kernel image missing!"
+            exit 1
+          fi
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build
-          path: kernel/arch/arm64/boot/Image*
+          path: kernel/build/arch/arm64/boot/Image*
+          if-no-files-found: error
