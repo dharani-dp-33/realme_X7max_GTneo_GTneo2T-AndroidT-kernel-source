@@ -1,74 +1,53 @@
-name: Realme X7 Max Kernel Builder
-on:
+name: OPLUS-Free Realme X7 Max Build
+on: 
   workflow_dispatch:
   push:
     branches: [master]
+
+env:
+  ARCH: arm64
+  CLANG_PATH: prebuilts/clang/host/linux-x86/clang-r450784d/bin
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # ========================
-      # 1. Clone & Prepare Source
-      # ========================
-      - name: Clone OnePlus Nord 2 Kernel
+      - name: Clone & Purge OPPO
         run: |
-          git clone --depth=1 "https://github.com/OnePlusOSS/android_kernel_oneplus_mt6893" kernel
-          cd kernel
+          git clone --depth=1 --branch master \
+            "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \
+            kernel
+          
+          # Nuclear OPLUS removal
+          rm -rfv \
+            kernel/sched_assist \
+            arch/arm64/kernel/rootguard \
+            drivers/input/touchscreen/oplus*
+          
+          # Defconfig cleanup
+          sed -i '/CONFIG_OPLUS/d' arch/arm64/configs/*
+          sed -i '/_FEATURE_/d' arch/arm64/configs/*
 
-          # Add Realme X7 Max drivers
-          git clone https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source realme_source
-          cp -r realme_source/drivers/input/touchscreen/oplus/* drivers/input/touchscreen/oplus/
-          cp -r realme_source/drivers/gpu/drm/panel/realme_x7max drivers/gpu/drm/panel/
-          cp -r realme_source/arch/arm64/boot/dts/realme/x7max arch/arm64/boot/dts/realme/
+      - name: Setup Toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: google/aosp-clang
+          path: clang
+          ref: r450784d
 
-          # Cleanup
-          rm -rf realme_source
-
-      # ========================
-      # 2. Fix Configs & Makefiles
-      # ========================
-      - name: Patch Configuration
-        run: |
-          cd kernel
-          # Add Realme drivers to defconfig
-          echo "CONFIG_TOUCHSCREEN_REALME_X7MAX=y" >> arch/arm64/configs/oneplus_nord2_defconfig
-          echo "CONFIG_DRM_PANEL_REALME_X7MAX=y" >> arch/arm64/configs/oneplus_nord2_defconfig
-
-          # Update Makefiles
-          echo 'obj-$(CONFIG_TOUCHSCREEN_REALME_X7MAX) += realme_x7max_touch/' >> drivers/input/touchscreen/oplus/Makefile
-          echo 'obj-$(CONFIG_DRM_PANEL_REALME_X7MAX) += realme_x7max/' >> drivers/gpu/drm/panel/Makefile
-          echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += realme/x7max/realme-x7max.dtb' >> arch/arm64/boot/dts/Makefile
-
-      # ========================
-      # 3. Build with Error Handling
-      # ========================
-      - name: Build Kernel
+      - name: Build
         run: |
           cd kernel
-          export ARCH=arm64
-          set -e  # Exit immediately on error
+          make O=build realme_x7max_defconfig
+          make -j$(nproc) O=build \
+            CC=${{ github.workspace }}/clang/bin/clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu-
 
-          # Workaround for DTB paths
-          mkdir -p out/arch/arm64/boot/dts/realme/x7max
-
-          make O=out oneplus_nord2_defconfig
-          make O=out -j$(nproc) 2>&1 | tee build.log
-
-          # Post-build validation
-          if [ ! -f "out/arch/arm64/boot/Image" ]; then
-            echo "::error::Kernel image not generated!"
-            exit 1
-          fi
-
-      # ========================
-      # 4. Upload Artifact
-      # ========================
-      - name: Upload Artifact
+      - name: Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-build
+          name: kernel-build-${{ github.run_id }}
           path: |
-            kernel/out/arch/arm64/boot/Image
-            kernel/out/arch/arm64/boot/dts/realme/x7max/realme-x7max.dtb
-          if-no-files-found: error
+            kernel/build/arch/arm64/boot/Image
+            kernel/build/.config
