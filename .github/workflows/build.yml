@@ -9,32 +9,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # ========================
-      # 1. Clone & Purge OPLUS
+      # 1. Clone & Sanitize Source
       # ========================
-      - name: Clone and Sanitize
+      - name: Clone and Clean Source
         run: |
           git clone --depth=1 \
             "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \
             kernel
           cd kernel
 
-          # Delete OPLUS directories/files
+          # Delete OPLUS directories
           rm -rf \
             arch/arm64/kernel/rootguard \
             kernel/sched_assist \
             drivers/input/touchscreen/oplus_touchscreen \
             kernel/locking/klockopt \
-            OplusKernelEnvConfig.mk  # Explicitly remove problematic file
+            OplusKernelEnvConfig.mk
 
-          # Fix Makefile conditionals (critical for "extraneous endif")
-          find . -type f \( -name "Makefile*" -o -name "*.mk" \) \
-            -exec sed -i -E \
-              -e '/OPLUS_|_FEATURE_/d' \
-              -e '/ifn*eq/d; /else/d; /endif/d' \  # Remove orphaned conditionals
-              {} \;
+          # Fix find command syntax (critical fix)
+          find . -type f \( -name "Kconfig*" -o -name "Makefile*" -o -name "*.mk" \) -exec sed -i \
+            -e '/OPLUS_/Id' \
+            -e '/_FEATURE_/d' \
+            -e '/sched_assist/d' \
+            -e '/rootguard/d' \
+            -e '/ifn*eq/d; /else/d; /endif/d' \
+            {} \;
 
       # ========================
-      # 2. Build Pure ARM64 Kernel
+      # 2. Build Minimal Kernel
       # ========================
       - name: Build Kernel
         run: |
@@ -49,16 +51,17 @@ jobs:
           CONFIG_MMU=y
           EOF
 
-          # Clean build with strict isolation
+          # Build with isolation
           make O=build distclean
           make O=build generic_defconfig
           make O=build -j$(nproc)
 
       # ========================
-      # 3. Upload Artifact
+      # 3. Upload Results
       # ========================
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build
           path: kernel/build/arch/arm64/boot/Image*
+          if-no-files-found: error
