@@ -1,29 +1,20 @@
 name: Realme X7 Max Auto-Builder
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Clone & Auto-Fix
+      - name: Clone & Sanitize
         run: |
           git clone --depth=1 \
             "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \
             kernel-source
 
-          # Automatic sched_assist cleanup
+          # Remove problematic components
           cd kernel-source
-          rm -rf kernel/sched_assist
-          sed -i '/sched_assist/d' init/Kconfig
-
-          # Commit fixes (optional)
-          git config --local user.email "actions@github.com"
-          git config --local user.name "GitHub Actions"
-          git add .
-          git commit -m "Auto-remove sched_assist" || true  # No error if no changes
+          rm -rf kernel/sched_assist kernel/locking/klockopt
+          sed -i '/sched_assist/d; /klockopt/d' init/Kconfig
 
       - name: Build Kernel
         run: |
@@ -36,9 +27,3 @@ jobs:
         with:
           name: kernel-${{ github.sha }}
           path: kernel-source/arch/arm64/boot/Image
-
-      - name: Auto-Push Fixes
-        if: ${{ success() }}
-        run: |
-          cd kernel-source
-          git push origin main || echo "No changes to push"
