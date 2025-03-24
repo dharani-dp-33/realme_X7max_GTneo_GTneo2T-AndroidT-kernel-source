@@ -8,30 +8,52 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Clone Source
+      # ========================
+      # 1. Clone Source
+      # ========================
+      - name: Clone Repository
         run: |
           git clone --depth=1 "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" kernel
 
-      - name: Remove OPLUS Dependencies
+      # ========================
+      # 2. Fix sed Command (Critical)
+      # ========================
+      - name: Remove OPLUS Components
         run: |
           cd kernel
+          # Delete OPLUS directories
           rm -rf \
             arch/arm64/kernel/rootguard \
             kernel/sched_assist \
             drivers/input/touchscreen/oplus_touchscreen \
+            kernel/locking/klockopt \
             OplusKernelEnvConfig.mk
-          sed -i '/OPLUS_/d; /_FEATURE_/d' Makefile
 
+          # Fix Makefile syntax (no line breaks in sed)
+          sed -i \
+            -e '/^if.*OPLUS_/,/^endif/d' \
+            -e '/include.*OplusKernelEnvConfig.mk/d' \
+            -e '/OPLUS_/d; /_FEATURE_/d' \
+            Makefile
+
+      # ========================
+      # 3. Build Kernel
+      # ========================
       - name: Build Kernel
         run: |
           cd kernel
           export ARCH=arm64
           echo "CONFIG_ARM64=y" > arch/arm64/configs/generic_defconfig
-          make O=build -j$(nproc) generic_defconfig
+          make O=build distclean
+          make O=build generic_defconfig
           make O=build -j$(nproc)
 
+      # ========================
+      # 4. Upload Artifact
+      # ========================
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build
           path: kernel/build/arch/arm64/boot/Image*
+          if-no-files-found: error
