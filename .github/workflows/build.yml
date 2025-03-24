@@ -1,53 +1,49 @@
-name: OPLUS-Free Realme X7 Max Build
-on: 
-  workflow_dispatch:
-  push:
-    branches: [master]
-
-env:
-  ARCH: arm64
-  CLANG_PATH: prebuilts/clang/host/linux-x86/clang-r450784d/bin
+name: Strict-Rules Kernel Builder
+on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Clone & Purge OPPO
+      # ==== RULE 1: FULL SOURCE CLONE ====
+      - name: Clone Sources
         run: |
-          git clone --depth=1 --branch master \
-            "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \
+          git clone --depth=1 \
+            "https://github.com/mt6893-development/android_kernel_oplus_mt6893" \
             kernel
-          
-          # Nuclear OPLUS removal
-          rm -rfv \
-            kernel/sched_assist \
-            arch/arm64/kernel/rootguard \
-            drivers/input/touchscreen/oplus*
-          
-          # Defconfig cleanup
-          sed -i '/CONFIG_OPLUS/d' arch/arm64/configs/*
-          sed -i '/_FEATURE_/d' arch/arm64/configs/*
+          git clone \
+            "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \
+            stock
 
-      - name: Setup Toolchain
-        uses: actions/checkout@v4
-        with:
-          repository: google/aosp-clang
-          path: clang
-          ref: r450784d
-
-      - name: Build
+      # ==== RULE 2: OPLUS REMOVAL ====
+      - name: Purge OPPO
         run: |
           cd kernel
-          make O=build realme_x7max_defconfig
-          make -j$(nproc) O=build \
-            CC=${{ github.workspace }}/clang/bin/clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu-
+          # Nuclear removal (Original 2024-03-15 method)
+          rm -rf $(grep -irl 'OPLUS' * | xargs dirname | uniq)
+          find . -name "*oplus*" -delete
 
-      - name: Artifact
+      # ==== RULE 3: ERROR REPEAT PREVENTION ====
+      - name: Error Guardrails
+        run: |
+          cd kernel
+          # Block previously seen errors
+          [ ! -d "kernel/sched_assist" ] || exit 1
+          [ ! -f "arch/arm64/kernel/rootguard/Makefile" ] || exit 1
+          grep -q "CONFIG_OPLUS" .config && exit 1
+
+      # ==== RULE 4: DOCUMENTED BUILD ====
+      - name: Build & Log
+        run: |
+          cd kernel
+          make realme_x7max_defconfig 2>&1 | tee build.log
+          make -j$(nproc) 2>&1 | tee -a build.log
+          grep -i "error:" build.log && exit 1
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-build-${{ github.run_id }}
+          name: kernel-build
           path: |
-            kernel/build/arch/arm64/boot/Image
-            kernel/build/.config
+            kernel/arch/arm64/boot/Image
+            kernel/build.log
