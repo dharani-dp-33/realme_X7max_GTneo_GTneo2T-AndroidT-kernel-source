@@ -1,62 +1,63 @@
-name: Realme X7 Max Kernel Builder
+name: Realme X7 Max Kernel Build
 on:
   workflow_dispatch:
-  push:
-    branches: [master]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # ========================
-      # 1. Clone & Purge OPLUS
-      # ========================
-      - name: Clone and Sanitize Source
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Build Environment
         run: |
-          git clone --depth=1 "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" kernel
-          cd kernel
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc build-essential \
+          libssl-dev make bc bison flex libelf-dev zip \
+          libncurses-dev gzip python-is-python3
 
-          # Delete OPLUS directories (critical)
-          rm -rf \
-            arch/arm64/kernel/rootguard \
-            kernel/sched_assist \
-            drivers/input/touchscreen/oplus_touchscreen
+      - name: Remove OPLUS Dependencies
+        run: |
+          # Remove OPLUS specific directories
+          rm -rf arch/arm64/kernel/rootguard
+          rm -rf kernel/sched_assist
+          rm -rf drivers/input/touchscreen/oplus_touchscreen
+          rm -f OplusKernelEnvConfig.mk
 
-          # Remove ALL references to deleted directories
-          find . -type f \( -name "Makefile*" -o -name "Kconfig*" \) \
-            -exec sed -i \
-              -e '/rootguard/d' \
-              -e '/sched_assist/d' \
-              -e '/oplus_touchscreen/d' \
-              -e '/OPLUS_/d; /_FEATURE_/d' \
-              {} \;
+          # Clean Makefiles and Kconfig files
+          find . -type f -name "Makefile" -exec sed -i -e '/^if.*OPLUS_/,/^endif/d' -e '/OPLUS_/d' -e '/_FEATURE_/d' {} +
+          find . -type f -name "Kconfig*" -exec sed -i -e '/^if.*OPLUS_/,/^endif/d' -e '/OPLUS_/d' -e '/_FEATURE_/d' {} +
 
-      # ========================
-      # 2. Build with Isolation
-      # ========================
+          # Remove OPLUS configs from defconfig
+          sed -i '/CONFIG_OPLUS_/d' arch/arm64/configs/k6891v1_64_k419_debug_defconfig
+          sed -i '/_FEATURE_/d' arch/arm64/configs/k6891v1_64_k419_debug_defconfig
+
       - name: Build Kernel
         run: |
-          cd kernel
           export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export KBUILD_BUILD_USER=dharani-dp-33
+          export KBUILD_BUILD_HOST="github-actions"
 
-          # Minimal configuration (no OPLUS dependencies)
-          cat << EOF > arch/arm64/configs/generic_defconfig
-          CONFIG_ARM64=y
-          CONFIG_SMP=y
-          CONFIG_BLOCK=y
-          CONFIG_MMU=y
-          EOF
+          # Use O=build for isolation
+          mkdir -p build
+          
+          # Generate minimal config first
+          echo "CONFIG_ARM64=y" > build/.config
+          echo "CONFIG_CROSS_COMPILE=\"aarch64-linux-gnu-\"" >> build/.config
+          
+          # Now try the build with isolated directory
+          make O=build k6891v1_64_k419_debug_defconfig
+          make O=build -j$(nproc) 2>&1 | tee build.log
 
-          # Avoid "make clean" (bypasses rootguard cleanup errors)
-          make O=build generic_defconfig
-          make O=build -j$(nproc)
-
-      # ========================
-      # 3. Upload Artifact
-      # ========================
-      - name: Upload Artifact
+      - name: Upload Output
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-build
-          path: kernel/build/arch/arm64/boot/Image*
-          if-no-files-found: error
+          name: kernel-build-$(date +%s)
+          path: |
+            build/arch/arm64/boot/Image*
+            build.log
+            build/.config
+          if-no-files-found: warn
