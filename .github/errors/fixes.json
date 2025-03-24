@@ -1,0 +1,6 @@
+{
+  "Kconfig_errors": {
+    "pattern": "can't open file",
+    "fix": "sed -i '/problematic_line/d' init/Kconfig"
+  }
+}
