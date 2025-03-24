@@ -2206,3 +2206,4 @@ config ARCH_HAS_SYSCALL_WRAPPER
 
 source "init/Kconfig.gki"
 ERROR_TEST
+ERROR_TEST
