@@ -1,67 +1,52 @@
-name: Realme X7 Max Kernel Builder
-on:
-  workflow_dispatch:
-  push:
-    branches: [master]
+name: Realme X7 Max Kernel Builder  
+on:  
+  workflow_dispatch:  
+  push:  
+    branches: [master]  
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      # ========================
-      # 1. Clone & Sanitize Source
-      # ========================
-      - name: Clone and Clean Source
-        run: |
-          git clone --depth=1 \
-            "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \
-            kernel
-          cd kernel
+jobs:  
+  build:  
+    runs-on: ubuntu-latest  
+    steps:  
+      # ========================  
+      # 1. Clone & Fix Makefile  
+      # ========================  
+      - name: Clone and Repair Source  
+        run: |  
+          git clone --depth=1 \  
+            "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \  
+            kernel  
+          cd kernel  
 
-          # Delete OPLUS directories
-          rm -rf \
-            arch/arm64/kernel/rootguard \
-            kernel/sched_assist \
-            drivers/input/touchscreen/oplus_touchscreen \
-            kernel/locking/klockopt \
-            OplusKernelEnvConfig.mk
+          # Delete OPLUS components  
+          rm -rf \  
+            arch/arm64/kernel/rootguard \  
+            kernel/sched_assist \  
+            drivers/input/touchscreen/oplus_touchscreen \  
+            OplusKernelEnvConfig.mk  
 
-          # Fix find command syntax (critical fix)
-          find . -type f \( -name "Kconfig*" -o -name "Makefile*" -o -name "*.mk" \) -exec sed -i \
-            -e '/OPLUS_/Id' \
-            -e '/_FEATURE_/d' \
-            -e '/sched_assist/d' \
-            -e '/rootguard/d' \
-            -e '/ifn*eq/d; /else/d; /endif/d' \
-            {} \;
+          # Fix Makefile conditionals (critical for missing 'endif')  
+          sed -i -e '/^if.*OPLUS_/,/^endif/d' \  
+                 -e '/^if.*_FEATURE_/,/^endif/d' \  
+                 -e '/include.*OplusKernelEnvConfig.mk/d' \  
+              Makefile  
 
-      # ========================
-      # 2. Build Minimal Kernel
-      # ========================
-      - name: Build Kernel
-        run: |
-          cd kernel
-          export ARCH=arm64
+      # ========================  
+      # 2. Build Vanilla Kernel  
+      # ========================  
+      - name: Build Kernel  
+        run: |  
+          cd kernel  
+          export ARCH=arm64  
+          echo "CONFIG_ARM64=y" > arch/arm64/configs/generic_defconfig  
+          make O=build generic_defconfig  
+          make O=build -j$(nproc)  
 
-          # Minimal validated config
-          cat << EOF > arch/arm64/configs/generic_defconfig
-          CONFIG_ARM64=y
-          CONFIG_SMP=y
-          CONFIG_BLOCK=y
-          CONFIG_MMU=y
-          EOF
-
-          # Build with isolation
-          make O=build distclean
-          make O=build generic_defconfig
-          make O=build -j$(nproc)
-
-      # ========================
-      # 3. Upload Results
-      # ========================
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-build
-          path: kernel/build/arch/arm64/boot/Image*
-          if-no-files-found: error
+      # ========================  
+      # 3. Upload Artifact  
+      # ========================  
+      - name: Upload Artifact  
+        uses: actions/upload-artifact@v4  
+        with:  
+          name: kernel-build  
+          path: kernel/build/arch/arm64/boot/Image*  
