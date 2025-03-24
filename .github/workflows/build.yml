@@ -9,41 +9,55 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # ========================
-      # 1. Fixed Clone Command
+      # 1. Clone Source (Fixed)
       # ========================
-      - name: Clone Source
+      - name: Clone Repository
         run: |
           git clone --depth=1 "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" kernel
 
       # ========================
-      # 2. Sanitize OPLUS Components
+      # 2. Nuclear OPLUS Removal
       # ========================
-      - name: Remove OPLUS Dependencies
+      - name: Remove OPLUS Components
         run: |
           cd kernel
+          # Delete directories
           rm -rf \
             arch/arm64/kernel/rootguard \
             kernel/sched_assist \
             drivers/input/touchscreen/oplus_touchscreen \
+            kernel/locking/klockopt \
             OplusKernelEnvConfig.mk
-          sed -i '/OPLUS_/d; /_FEATURE_/d' Makefile
+
+          # Fix Makefile (critical step)
+          sed -i -e '/^if.*OPLUS_/,/^endif/d' \     # Delete entire if-else-endif blocks
+                 -e '/include.*OplusKernelEnvConfig.mk/d' \  # Remove broken includes
+                 -e '/OPLUS_/d; /_FEATURE_/d' \     # Remove leftover references
+              Makefile
 
       # ========================
-      # 3. Build Minimal Kernel
+      # 3. Build with Isolation
       # ========================
       - name: Build Kernel
         run: |
           cd kernel
           export ARCH=arm64
+          
+          # Minimal config (no OPLUS dependencies)
           echo "CONFIG_ARM64=y" > arch/arm64/configs/generic_defconfig
-          make O=build -j$(nproc) generic_defconfig
+          echo "CONFIG_SMP=y" >> arch/arm64/configs/generic_defconfig
+          
+          # Clean isolated build
+          make O=build distclean
+          make O=build generic_defconfig
           make O=build -j$(nproc)
 
       # ========================
-      # 4. Upload Artifact
+      # 4. Verify & Upload
       # ========================
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build
           path: kernel/build/arch/arm64/boot/Image*
+          if-no-files-found: error
