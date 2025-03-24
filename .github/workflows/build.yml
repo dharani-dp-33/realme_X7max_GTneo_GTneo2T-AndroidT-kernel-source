@@ -8,25 +8,24 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Clone Kernel Source
+      - name: Clone & Sanitize
         run: |
           git clone --depth=1 \
             "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \
             kernel-source
 
-          # Verify clone success
-          if [ ! -d "kernel-source" ]; then
-            echo "::error::Clone failed! Check repository URL."
-            exit 1
-          fi
+          # Permanent fix for sched_assist
+          cd kernel-source
+          rm -rf kernel/sched_assist
+          sed -i '/sched_assist/d' init/Kconfig
 
-      - name: Build Kernel
+      - name: Build
         run: |
           cd kernel-source
-          make defconfig
+          make realme_x7max_defconfig
           make -j$(nproc)
 
-      - name: Upload Artifacts
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build
