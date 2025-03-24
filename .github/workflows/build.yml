@@ -1,73 +1,71 @@
-name: Realme X7 Max Kernel Builder
-on:
-  workflow_dispatch:
-  push:
-    branches: [master]
+name: Realme X7 Max Kernel Builder  
+on:  
+  workflow_dispatch:  
+  push:  
+    branches: [master]  
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      # ========================
-      # 1. Checkout & Purge OPLUS
-      # ========================
-      - name: Checkout and Sanitize Source
-        run: |
-          # Clone fresh copy (avoid runner caching issues)
-          git clone --depth=1 https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source kernel
-          cd kernel
+jobs:  
+  build:  
+    runs-on: ubuntu-latest  
+    steps:  
+      # ========================  
+      # 1. Fresh Clone & Nuclear Cleanup  
+      # ========================  
+      - name: Clone and Purge OPLUS  
+        run: |  
+          git clone --depth=1 \  
+            https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source \  
+            kernel  
+          cd kernel  
 
-          # Nuclear removal of OPLUS components
-          rm -rf arch/arm64/kernel/rootguard
-          rm -rf kernel/sched_assist
-          rm -rf kernel/locking/klockopt
-          rm -rf drivers/soc/oplus
-          find . -type f \( -name "*Oplus*" -o -name "*OPLUS*" \) -delete
+          # Delete ALL OPLUS directories  
+          rm -rf \  
+            arch/arm64/kernel/rootguard \  
+            kernel/sched_assist \  
+            kernel/locking/klockopt \  
+            drivers/soc/oplus \  
+            drivers/input/touchscreen/oplus_touchscreen  
 
-          # Fix broken Makefiles/Kconfigs
-          find . -type f \( -name "Kconfig*" -o -name "Makefile*" -o -name "*.mk" \) \
-            -exec sed -i \
-              -e '/OPLUS_/d' \
-              -e '/_FEATURE_/d' \
-              -e '/rootguard/d' \
-              -e '/sched_assist/d' \
-              -e '/klockopt/d' \
-              -e '/endif()/d' \
-              {} \;
+          # Purge OPLUS references from all files  
+          find . -type f \( -name "*Kconfig*" -o -name "*Makefile*" -o -name "*.mk" \) \  
+            -exec sed -i \  
+              -e '/OPLUS_/d' \  
+              -e '/_FEATURE_/d' \  
+              -e '/rootguard/d' \  
+              -e '/sched_assist/d' \  
+              -e '/klockopt/d' \  
+              -e '/oplus_touchscreen/d' \  
+              {} \;  
 
-      # ========================
-      # 2. Build Pure ARM64 Kernel
-      # ========================
-      - name: Build Vanilla Kernel
-        run: |
-          cd kernel
-          export ARCH=arm64
+      # ========================  
+      # 2. Build with Isolated Config  
+      # ========================  
+      - name: Build Vanilla Kernel  
+        run: |  
+          cd kernel  
+          export ARCH=arm64  
 
-          # Create ultra-minimal config
-          cat << EOF > arch/arm64/configs/generic_defconfig
-          CONFIG_ARM64=y
-          CONFIG_SMP=y
-          CONFIG_BLOCK=y
-          CONFIG_MMU=y
-          CONFIG_SERIAL_AMBA_PL011=y
-          EOF
+          # Minimal defconfig (no dependencies)  
+          cat << EOF > arch/arm64/configs/generic_defconfig  
+          CONFIG_ARM64=y  
+          CONFIG_SMP=y  
+          CONFIG_BLOCK=y  
+          CONFIG_MMU=y  
+          EOF  
 
-          # Clean build environment
-          make O=build distclean
+          # Clean environment  
+          make O=build distclean  
 
-          # Build with strict checks
-          make O=build generic_defconfig
-          make O=build -j$(nproc) 2>&1 | tee build.log
+          # Build  
+          make O=build generic_defconfig  
+          make O=build -j$(nproc)  
 
-      # ========================
-      # 3. Validate & Upload
-      # ========================
-      - name: Verify Kernel Image
-        run: |
-          [ -f "kernel/build/arch/arm64/boot/Image" ] || exit 1
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-build
-          path: kernel/build/arch/arm64/boot/Image*
+      # ========================  
+      # 3. Validate & Upload  
+      # ========================  
+      - name: Upload Artifact  
+        uses: actions/upload-artifact@v4  
+        with:  
+          name: kernel-build  
+          path: kernel/build/arch/arm64/boot/Image*  
+          if-no-files-found: error  
