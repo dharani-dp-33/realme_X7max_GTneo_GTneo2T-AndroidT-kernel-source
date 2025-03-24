@@ -7,23 +7,39 @@ jobs:
     steps:
       - name: Clone Sources
         run: |
-          # Your Realme device tree
           git clone --depth=1 \
             "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \
             realme-kernel
-
-          # OnePlus kernel base
+          
           git clone --depth=1 \
             "https://github.com/mt6893-development/android_kernel_oplus_mt6893" \
             oneplus-kernel
 
-      - name: Merge Critical Code
+      - name: Verify Paths
         run: |
-          # Bring Realme components into OnePlus base
-          cp -r realme-kernel/arch/arm64/boot/dts/realme oneplus-kernel/arch/arm64/boot/dts/
-          cp realme-kernel/drivers/input/touchscreen/realme_ts.c oneplus-kernel/drivers/input/touchscreen/
+          # Check Realme DTS existence
+          if [ ! -d "realme-kernel/arch/arm64/boot/dts/oplus" ]; then
+            echo "::error::Realme DTS not found at expected path!"
+            exit 1
+          fi
 
-          # Remove problematic OnePlus code
+          # Check touchscreen driver
+          if [ ! -f "realme-kernel/drivers/input/touchscreen/oplus_touchscreen/realme_ts.c" ]; then
+            echo "::error::Touchscreen driver missing!"
+            exit 1
+          fi
+
+      - name: Merge Components
+        run: |
+          # Create directory structure
+          mkdir -p oneplus-kernel/arch/arm64/boot/dts/oplus
+          mkdir -p oneplus-kernel/drivers/input/touchscreen/oplus_touchscreen
+
+          # Copy Realme-specific components
+          cp -r realme-kernel/arch/arm64/boot/dts/oplus/* oneplus-kernel/arch/arm64/boot/dts/oplus/
+          cp realme-kernel/drivers/input/touchscreen/oplus_touchscreen/realme_ts.c oneplus-kernel/drivers/input/touchscreen/oplus_touchscreen/
+
+          # Clean OnePlus problematic code
           rm -rf oneplus-kernel/block/uxio_first
           sed -i '/uxio_first/d' oneplus-kernel/block/Kconfig
 
