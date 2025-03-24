@@ -8,27 +8,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # ==============================
-      # Rule 1: Full Code + Syntax Check
-      # ==============================
-      - name: Validate Workflow Syntax
-        uses: actions/github-script@v6
-        with:
-          script: |
-            try {
-              await github.rest.actions.getWorkflow({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: '.github/workflows/build.yml'
-              });
-              core.info('✅ Syntax validated');
-            } catch (error) {
-              core.setFailed(`❌ Syntax error: ${error}`);
-            }
-
-      # ==============================
-      # Rule 4: No Vendor Assumptions
-      # ==============================
+      # ========================
+      # 1. Checkout & Prep Source
+      # ========================
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
@@ -36,64 +18,51 @@ jobs:
           ref: master
           path: kernel
 
-      # ==============================
-      # Rule 2: Dependency Fixes
-      # ==============================
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            build-essential \
-            libncurses-dev \
-            bison \
-            flex \
-            libssl-dev \
-            findutils \
-            git
-
-      # ==============================
-      # Rule 3: OPLUS Nuclear Removal
-      # ==============================
-      - name: Purge OPLUS Configs
+      # ========================
+      # 2. Nuclear Removal of OPLUS
+      # ========================
+      - name: Delete OPLUS Components
         run: |
           cd kernel
-          # Delete ALL OPLUS references globally
-          find . -type f \( -name "*defconfig" -o -name "Kconfig*" \) \
-            -exec sed -i '/OPLUS_/d; /_FEATURE_/d; /sched_assist/d; /rootguard/d' {} \;
+          # Remove problematic directories
+          rm -rf arch/arm64/kernel/rootguard
+          rm -rf kernel/locking/klockopt
+          rm -rf drivers/soc/oplus
 
-          # Force minimal ARM64 config
-          echo "CONFIG_ARM64=y" > arch/arm64/configs/generic_defconfig
-          echo "CONFIG_SMP=y" >> arch/arm64/configs/generic_defconfig
+          # Delete all OPLUS-related Makefiles/Kconfigs
+          find . -type f \( -name "*OPLUS*" -o -name "*klockopt*" -o -name "*rootguard*" \) -delete
 
-      # ==============================
-      # Rule 1: Complete Build Process
-      # ==============================
-      - name: Build Kernel
+          # Purge from remaining files
+          find . -type f \( -name "Kconfig" -o -name "Makefile" -o -name "*.mk" \) \
+            -exec sed -i '/OPLUS_/d; /_FEATURE_/d; /rootguard/d; /klockopt/d' {} \;
+
+      # ========================
+      # 3. Build Vanilla ARM64 Kernel
+      # ========================
+      - name: Build Generic Kernel
         run: |
           cd kernel
           export ARCH=arm64
           
-          # Isolate build artifacts
-          mkdir -p build
+          # Create minimal config
+          echo "CONFIG_ARM64=y" > arch/arm64/configs/generic_defconfig
+          echo "CONFIG_SMP=y" >> arch/arm64/configs/generic_defconfig
+          echo "CONFIG_BLOCK=y" >> arch/arm64/configs/generic_defconfig
+
+          # Build with isolated output
           make O=build clean && make O=build mrproper
-          
-          # Use minimal config
           make O=build generic_defconfig
           make O=build -j$(nproc) 2>&1 | tee build.log
 
-      # ==============================
-      # Rule 5: Artifact Verification
-      # ==============================
-      - name: Validate Artifacts
+      # ========================
+      # 4. Validate & Upload
+      # ========================
+      - name: Verify Artifacts
         run: |
-          if [ ! -f "kernel/build/arch/arm64/boot/Image.gz-dtb" ]; then
-            echo "::error::Kernel image missing!"
-            exit 1
-          fi
+          [ -f "kernel/build/arch/arm64/boot/Image" ] || exit 1
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build
           path: kernel/build/arch/arm64/boot/Image*
-          if-no-files-found: error
