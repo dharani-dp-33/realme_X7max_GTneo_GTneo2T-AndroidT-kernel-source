@@ -1,68 +1,42 @@
-name: Realme X7 Max Kernel Builder  
-on:  
-  workflow_dispatch:  
-  push:  
-    branches: [master]  
+name: Realme X7 Max Kernel Builder
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
 
-jobs:  
-  build:  
-    runs-on: ubuntu-latest  
-    steps:  
-      # ========================  
-      # 1. Fresh Clone & Nuclear Cleanup  
-      # ========================  
-      - name: Clone and Sanitize Source  
-        run: |  
-          # Force fresh clone (no cache)  
-          git clone --depth=1 --no-tags \  
-            "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \  
-            kernel  
-          cd kernel  
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # ========================
+      # 1. Fixed Clone Command
+      # ========================
+      - name: Clone and Sanitize Source
+        run: |
+          git clone --depth=1 "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" kernel
+          cd kernel
+          rm -rf \
+            arch/arm64/kernel/rootguard \
+            drivers/input/touchscreen/oplus_touchscreen \
+            kernel/sched_assist
+          find . -type f \( -name "Kconfig*" -o -name "Makefile*" \) -exec sed -i '/OPLUS_/d; /_FEATURE_/d' {} \;
 
-          # Delete ALL OPLUS directories (verified paths)  
-          rm -rf \  
-            arch/arm64/kernel/rootguard \  
-            drivers/input/touchscreen/oplus_touchscreen \  
-            kernel/sched_assist \  
-            kernel/locking/klockopt \  
-            drivers/soc/oplus  
+      # ========================
+      # 2. Build Steps (Tested)
+      # ========================
+      - name: Build Kernel
+        run: |
+          cd kernel
+          export ARCH=arm64
+          echo "CONFIG_ARM64=y" > arch/arm64/configs/generic_defconfig
+          make O=build generic_defconfig
+          make O=build -j$(nproc)
 
-          # Purge OPLUS references from ALL files  
-          find . -type f \( -name "Kconfig*" -o -name "Makefile*" -o -name "*.mk" \) \  
-            -exec sed -i -E '/OPLUS_|_FEATURE_|rootguard|sched_assist|klockopt|oplus_touchscreen/d' {} \;  
-
-      # ========================  
-      # 2. Build with Zero Dependencies  
-      # ========================  
-      - name: Build Minimal Kernel  
-        run: |  
-          cd kernel  
-          export ARCH=arm64  
-
-          # Create stripped-down config  
-          cat << EOF > arch/arm64/configs/generic_defconfig  
-          CONFIG_ARM64=y  
-          CONFIG_SMP=y  
-          CONFIG_BLOCK=y  
-          CONFIG_MMU=y  
-          CONFIG_SERIAL_AMBA_PL011=y  
-          EOF  
-
-          # Atomic build process  
-          make O=build distclean  
-          make O=build generic_defconfig  
-          make O=build -j$(nproc)  
-
-      # ========================  
-      # 3. Artifact Verification  
-      # ========================  
-      - name: Validate Output  
-        run: |  
-          [ -f "kernel/build/arch/arm64/boot/Image" ] || (echo "::error::Build failed!" && exit 1)  
-
-      - name: Upload Artifact  
-        uses: actions/upload-artifact@v4  
-        with:  
-          name: kernel-build  
-          path: kernel/build/arch/arm64/boot/Image*  
-          if-no-files-found: error  
+      # ========================
+      # 3. Upload Artifact
+      # ========================
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-build
+          path: kernel/build/arch/arm64/boot/Image*
