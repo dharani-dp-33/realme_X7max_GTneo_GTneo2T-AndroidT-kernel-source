@@ -9,47 +9,50 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # ========================
-      # 1. Clone Source
+      # 1. Clone & Purge OPLUS
       # ========================
-      - name: Clone Repository
+      - name: Clone and Sanitize Source
         run: |
           git clone --depth=1 "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" kernel
-
-      # ========================
-      # 2. Fix sed Command (Critical)
-      # ========================
-      - name: Remove OPLUS Components
-        run: |
           cd kernel
-          # Delete OPLUS directories
+
+          # Delete OPLUS directories (critical)
           rm -rf \
             arch/arm64/kernel/rootguard \
             kernel/sched_assist \
-            drivers/input/touchscreen/oplus_touchscreen \
-            kernel/locking/klockopt \
-            OplusKernelEnvConfig.mk
+            drivers/input/touchscreen/oplus_touchscreen
 
-          # Fix Makefile syntax (no line breaks in sed)
-          sed -i \
-            -e '/^if.*OPLUS_/,/^endif/d' \
-            -e '/include.*OplusKernelEnvConfig.mk/d' \
-            -e '/OPLUS_/d; /_FEATURE_/d' \
-            Makefile
+          # Remove ALL references to deleted directories
+          find . -type f \( -name "Makefile*" -o -name "Kconfig*" \) \
+            -exec sed -i \
+              -e '/rootguard/d' \
+              -e '/sched_assist/d' \
+              -e '/oplus_touchscreen/d' \
+              -e '/OPLUS_/d; /_FEATURE_/d' \
+              {} \;
 
       # ========================
-      # 3. Build Kernel
+      # 2. Build with Isolation
       # ========================
       - name: Build Kernel
         run: |
           cd kernel
           export ARCH=arm64
-          echo "CONFIG_ARM64=y" > arch/arm64/configs/generic_defconfig
-          make O=build distclean
+
+          # Minimal configuration (no OPLUS dependencies)
+          cat << EOF > arch/arm64/configs/generic_defconfig
+          CONFIG_ARM64=y
+          CONFIG_SMP=y
+          CONFIG_BLOCK=y
+          CONFIG_MMU=y
+          EOF
+
+          # Avoid "make clean" (bypasses rootguard cleanup errors)
           make O=build generic_defconfig
           make O=build -j$(nproc)
 
       # ========================
-      # 4. Upload Artifact
+      # 3. Upload Artifact
       # ========================
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
