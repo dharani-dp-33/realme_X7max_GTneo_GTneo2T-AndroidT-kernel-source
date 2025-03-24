@@ -16,21 +16,47 @@ jobs:
           libssl-dev make bc bison flex libelf-dev zip \
           libncurses-dev gzip python-is-python3
 
-      - name: Remove OPLUS Dependencies
+      - name: Fix Kconfig Dependencies
         run: |
-          # Remove OPLUS specific directories
+          # First, backup init/Kconfig
+          cp init/Kconfig init/Kconfig.backup
+          
+          # Remove the problematic lines from init/Kconfig
+          sed -i '737d' init/Kconfig  # Remove the line that sources sched_assist/Kconfig
+          
+          # Create empty directories to satisfy dependencies
+          mkdir -p kernel/sched_assist
+          touch kernel/sched_assist/Kconfig
+          
+          # Double check the changes
+          echo "=== Checking init/Kconfig modifications ==="
+          diff init/Kconfig.backup init/Kconfig || true
+          
+          # Remove other OPLUS dependencies
           rm -rf arch/arm64/kernel/rootguard
-          rm -rf kernel/sched_assist
           rm -rf drivers/input/touchscreen/oplus_touchscreen
           rm -f OplusKernelEnvConfig.mk
-
-          # Clean Makefiles and Kconfig files
+          
+          # Clean Makefiles and Kconfig files of OPLUS references
           find . -type f -name "Makefile" -exec sed -i -e '/^if.*OPLUS_/,/^endif/d' -e '/OPLUS_/d' -e '/_FEATURE_/d' {} +
           find . -type f -name "Kconfig*" -exec sed -i -e '/^if.*OPLUS_/,/^endif/d' -e '/OPLUS_/d' -e '/_FEATURE_/d' {} +
 
-          # Remove OPLUS configs from defconfig
-          sed -i '/CONFIG_OPLUS_/d' arch/arm64/configs/k6891v1_64_k419_debug_defconfig
-          sed -i '/_FEATURE_/d' arch/arm64/configs/k6891v1_64_k419_debug_defconfig
+      - name: Prepare Build Configuration
+        run: |
+          # Create minimal config
+          mkdir -p build
+          cat > arch/arm64/configs/minimal_defconfig << 'EOF'
+          CONFIG_ARM64=y
+          CONFIG_CROSS_COMPILE="aarch64-linux-gnu-"
+          # Basic MTK configs
+          CONFIG_MEDIATEK_SOLUTION=y
+          CONFIG_MTK_PLATFORM="mt6891"
+          CONFIG_ARCH_MEDIATEK=y
+          EOF
+          
+          # Show the config
+          echo "=== Generated minimal_defconfig ==="
+          cat arch/arm64/configs/minimal_defconfig
 
       - name: Build Kernel
         run: |
@@ -39,16 +65,9 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export KBUILD_BUILD_USER=dharani-dp-33
           export KBUILD_BUILD_HOST="github-actions"
-
-          # Use O=build for isolation
-          mkdir -p build
           
-          # Generate minimal config first
-          echo "CONFIG_ARM64=y" > build/.config
-          echo "CONFIG_CROSS_COMPILE=\"aarch64-linux-gnu-\"" >> build/.config
-          
-          # Now try the build with isolated directory
-          make O=build k6891v1_64_k419_debug_defconfig
+          # Try build with minimal config first
+          make O=build minimal_defconfig
           make O=build -j$(nproc) 2>&1 | tee build.log
 
       - name: Upload Output
@@ -60,4 +79,6 @@ jobs:
             build/arch/arm64/boot/Image*
             build.log
             build/.config
+            init/Kconfig
+            init/Kconfig.backup
           if-no-files-found: warn
