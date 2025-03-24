@@ -9,25 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # ========================
-      # 1. Validate Workflow Syntax
-      # ========================
-      - name: Validate Workflow Syntax
-        uses: actions/github-script@v6
-        with:
-          script: |
-            try {
-              await github.rest.actions.getWorkflow({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: '.github/workflows/build.yml'
-              });
-              core.info('✅ Workflow syntax validated');
-            } catch (error) {
-              core.setFailed(`❌ Workflow syntax error: ${error}`);
-            }
-
-      # ========================
-      # 2. Checkout Kernel Source
+      # 1. Checkout Kernel Source
       # ========================
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
@@ -37,79 +19,49 @@ jobs:
           path: kernel
 
       # ========================
-      # 3. Install Dependencies
+      # 2. Nuclear Fix: Remove OPLUS Dependencies
       # ========================
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            build-essential \
-            libncurses-dev \
-            bison \
-            flex \
-            libssl-dev \
-            findutils \
-            git
-
-      # ========================
-      # 4. Setup Toolchain
-      # ========================
-      - name: Setup Toolchain
-        run: |
-          git clone --depth=1 \
-            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-            toolchain
-
-      # ========================
-      # 5. Defconfig Patching
-      # ========================
-      - name: Patch Defconfig
+      - name: Purge OPLUS Configs
         run: |
           cd kernel
           # Find defconfig
           DEFCONFIG=$(find arch/arm64/configs -name "*_defconfig" -print -quit)
           
-          # Disable ALL OPLUS features
-          sed -i '/^CONFIG_OPLUS_/s/=y/=n/' $DEFCONFIG
-          sed -i '/^CONFIG_OPLUS_/d' $DEFCONFIG  # Remove if not using =n
-          sed -i '/_FEATURE_/s/=y/=n/' $DEFCONFIG
+          # Delete ALL OPLUS-related configurations
+          sed -i '/OPLUS_/d' $DEFCONFIG
+          sed -i '/_FEATURE_/d' $DEFCONFIG
+          sed -i '/sched_assist/d' $DEFCONFIG
 
           # Verify changes
           echo "Modified defconfig:"
-          grep "OPLUS\|_FEATURE_" $DEFCONFIG || true
+          cat $DEFCONFIG
 
       # ========================
-      # 6. Build Environment Setup
+      # 3. Build Setup
       # ========================
-      - name: Prepare Build Tools
+      - name: Prepare Build Environment
         run: |
           cd kernel
           make ARCH=arm64 defconfig
           make ARCH=arm64 prepare
 
       # ========================
-      # 7. Build Kernel
+      # 4. Build Kernel (Generic)
       # ========================
-      - name: Build Kernel
+      - name: Build Generic Kernel
         run: |
           cd kernel
           export ARCH=arm64
-          export CLANG_PATH=$(pwd)/../toolchain/clang-*/bin/clang
-          export PATH=$(pwd)/../toolchain/clang-*/bin:$PATH
-          
           set -ex
           make clean && make mrproper
           make defconfig
-          make -j$(nproc) CC=clang 2>&1 | tee build.log
+          make -j$(nproc) 2>&1 | tee build.log
 
       # ========================
-      # 8. Upload Artifacts
+      # 5. Upload Artifacts
       # ========================
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build
-          path: |
-            kernel/arch/arm64/boot/Image*
-            kernel/build.log
-          if-no-files-found: error
+          path: kernel/arch/arm64/boot/Image*
