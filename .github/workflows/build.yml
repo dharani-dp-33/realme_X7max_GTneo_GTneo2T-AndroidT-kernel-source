@@ -1,56 +1,40 @@
-name: Realme X7 Max Stable Builder
-on: [push, workflow_dispatch]
+name: Realme X7 Max Kernel Build
+
+on:
+  workflow_dispatch:  # Manually start the build from GitHub Actions
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # Use a Linux environment for building
+
     steps:
-      - name: Clone Sources
+      - name: 📥 Clone Kernel Source
         run: |
-          git clone --depth=1 \
-            "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \
-            realme-kernel
-          
-          git clone --depth=1 \
-            "https://github.com/mt6893-development/android_kernel_oplus_mt6893" \
-            oneplus-kernel
+          git clone --depth=1 https://github.com/mt6893-development/android_kernel_oplus_mt6893 kernel
+          git clone https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source stock
 
-      - name: Verify Paths
+      - name: 🚫 Remove OPLUS Dependencies
         run: |
-          # Check Realme DTS existence
-          if [ ! -d "realme-kernel/arch/arm64/boot/dts/oplus" ]; then
-            echo "::error::Realme DTS not found at expected path!"
-            exit 1
-          fi
+          cd kernel
+          rm -rf drivers/oplus/
+          sed -i '/CONFIG_OPLUS/d' arch/arm64/configs/*
+          sed -i '/sched_assist/d' kernel/sched/Makefile
 
-          # Check touchscreen driver
-          if [ ! -f "realme-kernel/drivers/input/touchscreen/oplus_touchscreen/realme_ts.c" ]; then
-            echo "::error::Touchscreen driver missing!"
-            exit 1
-          fi
-
-      - name: Merge Components
+      - name: 🛠 Set Up Toolchain
         run: |
-          # Create directory structure
-          mkdir -p oneplus-kernel/arch/arm64/boot/dts/oplus
-          mkdir -p oneplus-kernel/drivers/input/touchscreen/oplus_touchscreen
+          git clone --depth=1 https://github.com/android/prebuilts_clang_host_linux-x86 clang
+          export PATH=$PWD/clang/bin:$PATH
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export ARCH=arm64
 
-          # Copy Realme-specific components
-          cp -r realme-kernel/arch/arm64/boot/dts/oplus/* oneplus-kernel/arch/arm64/boot/dts/oplus/
-          cp realme-kernel/drivers/input/touchscreen/oplus_touchscreen/realme_ts.c oneplus-kernel/drivers/input/touchscreen/oplus_touchscreen/
-
-          # Clean OnePlus problematic code
-          rm -rf oneplus-kernel/block/uxio_first
-          sed -i '/uxio_first/d' oneplus-kernel/block/Kconfig
-
-      - name: Build
+      - name: 🔧 Configure & Build Kernel
         run: |
-          cd oneplus-kernel
-          make ARCH=arm64 realme_x7max_defconfig
-          make -j$(nproc) ARCH=arm64
+          cd kernel
+          make O=out realme_x7max_defconfig
+          make -j$(nproc) O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu-
 
-      - name: Upload
+      - name: 🏗 Upload Compiled Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: realme-op-merged
-          path: oneplus-kernel/arch/arm64/boot/Image
+          name: RealmeX7Max-Kernel
+          path: kernel/out/arch/arm64/boot/Image.gz-dtb
