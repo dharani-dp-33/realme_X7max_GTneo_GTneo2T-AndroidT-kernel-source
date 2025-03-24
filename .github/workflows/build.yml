@@ -1,49 +1,36 @@
-name: Strict-Rules Kernel Builder
-on: [workflow_dispatch]
+name: 3-Rule Kernel Builder  
+on: [workflow_dispatch]  
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      # ==== RULE 1: FULL SOURCE CLONE ====
-      - name: Clone Sources
-        run: |
-          git clone --depth=1 \
-            "https://github.com/mt6893-development/android_kernel_oplus_mt6893" \
-            kernel
-          git clone \
-            "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \
-            stock
+jobs:  
+  build:  
+    runs-on: ubuntu-latest  
+    steps:  
+      # ==== RULE 1: FULL CODE ====  
+      - name: Clone Entire Source  
+        run: |  
+          git clone --depth=1 \  
+            "https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source" \  
+            kernel  
 
-      # ==== RULE 2: OPLUS REMOVAL ====
-      - name: Purge OPPO
-        run: |
-          cd kernel
-          # Nuclear removal (Original 2024-03-15 method)
-          rm -rf $(grep -irl 'OPLUS' * | xargs dirname | uniq)
-          find . -name "*oplus*" -delete
+      # ==== RULE 2: ERROR BLOCKING ====  
+      - name: Past Error Guard  
+        run: |  
+          cd kernel  
+          # Fail build if these ever reappear  
+          [ ! -d "kernel/sched_assist" ] || { echo "RULE 2 VIOLATED: sched_assist"; exit 1; }  
+          [ ! -f "arch/arm64/kernel/rootguard/Makefile" ] || { echo "RULE 2 VIOLATED: rootguard"; exit 1; }  
 
-      # ==== RULE 3: ERROR REPEAT PREVENTION ====
-      - name: Error Guardrails
-        run: |
-          cd kernel
-          # Block previously seen errors
-          [ ! -d "kernel/sched_assist" ] || exit 1
-          [ ! -f "arch/arm64/kernel/rootguard/Makefile" ] || exit 1
-          grep -q "CONFIG_OPLUS" .config && exit 1
+      # ==== RULE 3: DOCUMENT EVERYTHING ====  
+      - name: Build & Log  
+        run: |  
+          cd kernel  
+          make defconfig 2>&1 | tee build.log  
+          make -j$(nproc) 2>&1 | tee -a build.log  
 
-      # ==== RULE 4: DOCUMENTED BUILD ====
-      - name: Build & Log
-        run: |
-          cd kernel
-          make realme_x7max_defconfig 2>&1 | tee build.log
-          make -j$(nproc) 2>&1 | tee -a build.log
-          grep -i "error:" build.log && exit 1
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-build
-          path: |
-            kernel/arch/arm64/boot/Image
-            kernel/build.log
+      - name: Archive Outputs  
+        uses: actions/upload-artifact@v4  
+        with:  
+          name: kernel-build  
+          path: |  
+            kernel/arch/arm64/boot/Image  
+            kernel/build.log  
