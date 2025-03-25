@@ -12,6 +12,10 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source kernel
 
+      - name: 🛠 Remove sched_assist Reference
+        run: |
+          sed -i '/sched_assist/d' kernel/init/Kconfig
+
       - name: 🛠 Set Up Toolchain (Proton Clang)
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
