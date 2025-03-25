@@ -1,21 +1,22 @@
 name: Realme X7 Max Stock Kernel Build
 
 on:
-  workflow_dispatch:  # Allows manual build start from GitHub Actions
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest  # Use a Linux environment
+    runs-on: ubuntu-latest
 
     steps:
       - name: 📥 Clone Stock Kernel Source
         run: |
           git clone --depth=1 https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source kernel
 
-      - name: 🛠 Set Up Toolchain
+      - name: 🛠 Set Up Toolchain (Alternative Clang)
         run: |
-          git clone --depth=1 https://github.com/android/prebuilts_clang_host_linux-x86 clang
-          export PATH=$PWD/clang/bin:$PATH
+          wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+/refs/heads/master/clang-r450784d.tar.gz
+          tar -xvf clang-r450784d.tar.gz
+          export PATH=$PWD/clang-r450784d/bin:$PATH
           export CROSS_COMPILE=aarch64-linux-gnu-
           export ARCH=arm64
 
