@@ -12,9 +12,10 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source kernel
 
-      - name: 🛠 Remove sched_assist Reference
+      - name: 🛠 Remove Missing References from Kconfig
         run: |
           sed -i '/sched_assist/d' kernel/init/Kconfig
+          sed -i '/klockopt/d' kernel/init/Kconfig
 
       - name: 🛠 Set Up Toolchain (Proton Clang)
         run: |
