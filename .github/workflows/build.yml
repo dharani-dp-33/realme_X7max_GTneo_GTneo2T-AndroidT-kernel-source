@@ -1,24 +1,16 @@
-name: Realme X7 Max Kernel Build
+name: Realme X7 Max Stock Kernel Build
 
 on:
-  workflow_dispatch:  # Manually start the build from GitHub Actions
+  workflow_dispatch:  # Allows manual build start from GitHub Actions
 
 jobs:
   build:
-    runs-on: ubuntu-latest  # Use a Linux environment for building
+    runs-on: ubuntu-latest  # Use a Linux environment
 
     steps:
-      - name: 📥 Clone Kernel Source
+      - name: 📥 Clone Stock Kernel Source
         run: |
-          git clone --depth=1 https://github.com/mt6893-development/android_kernel_oplus_mt6893 kernel
-          git clone https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source stock
-
-      - name: 🚫 Remove OPLUS Dependencies
-        run: |
-          cd kernel
-          rm -rf drivers/oplus/
-          sed -i '/CONFIG_OPLUS/d' arch/arm64/configs/*
-          sed -i '/sched_assist/d' kernel/sched/Makefile
+          git clone --depth=1 https://github.com/dharani-dp-33/realme_X7max_GTneo_GTneo2T-AndroidT-kernel-source kernel
 
       - name: 🛠 Set Up Toolchain
         run: |
