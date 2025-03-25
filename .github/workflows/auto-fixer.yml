@@ -13,6 +13,9 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Download Logs
         uses: actions/download-artifact@v4
         with:
@@ -35,10 +38,21 @@ jobs:
               sha: context.sha
             })
 
-      - name: Propose Fix
+      - name: Apply Cross-Reference Fix
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          # Example fix for Kconfig errors
-          sed -i '/ERROR_TEST/d' init/Kconfig
+          # Clone reference kernel using your PAT
+          git clone https://dharani-dp-33:$PAT_TOKEN@github.com/mt6893-development/android_kernel_oplus_mt6893 /tmp/reference-kernel
+          
+          # Example fix for missing files
+          MISSING_FILE=$(grep -oP "No such file.*: \K\S+" build.log)
+          if [ -f "/tmp/reference-kernel/$MISSING_FILE" ]; then
+            mkdir -p $(dirname "$MISSING_FILE")
+            cp "/tmp/reference-kernel/$MISSING_FILE" "$MISSING_FILE"
+          fi
+
+          # Commit and push fixes
           git add .
-          git commit -m "Auto-fix: Remove test error"
+          git commit -m "Auto-fix: Resolved ${{ steps.analyze.outputs.error }}"
           git push origin HEAD
